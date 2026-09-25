@@ -133,7 +133,6 @@ defineProps<{
                     {{ processing ? 'Signing in...' : 'Sign in' }}
                 </Button>
             </Form>
-
             <!-- Footer -->
             <div
                 class="mt-8 border-t border-border pt-5 text-center text-xs text-muted-foreground"
