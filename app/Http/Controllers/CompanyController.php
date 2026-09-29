@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreCompanyRequest;
 use App\Http\Requests\UpdateCompanyRequest;
+use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\User;
+use App\Support\AuditLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -84,7 +86,7 @@ class CompanyController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreCompanyRequest $request): RedirectResponse
+    public function store(StoreCompanyRequest $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -100,6 +102,7 @@ class CompanyController extends Controller
         }
 
         $this->syncUsers($company, $userIds);
+        $audit->record('companies', 'created', $company, newValues: $company->only($this->auditedAttributes()), request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Company created.')]);
 
@@ -113,14 +116,18 @@ class CompanyController extends Controller
     {
         Gate::authorize('view', $company);
 
-        $company->load('users:id,name,email');
+        $company->load(['users:id,name,email', 'documents.uploader:id,name']);
 
         return Inertia::render('companies/Show', [
             'company' => $this->companyPayload($company),
+            'activityLogs' => AuditLog::recentFor($company),
             'can' => [
                 'edit' => $request->user()->can('update', $company),
                 'delete' => $request->user()->can('delete', $company),
                 'switch' => $request->user()->can('switch', $company),
+                'uploadDocuments' => $request->user()->can('documents.upload'),
+                'downloadDocuments' => $request->user()->can('documents.download'),
+                'deleteDocuments' => $request->user()->can('documents.delete'),
             ],
         ]);
     }
@@ -146,10 +153,13 @@ class CompanyController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateCompanyRequest $request, Company $company): RedirectResponse
+    public function update(UpdateCompanyRequest $request, Company $company, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
         $attributes = $this->companyAttributes($validated);
+        $oldValues = $company->only($this->auditedAttributes());
+
+        unset($attributes['logo']);
 
         if ($request->boolean('remove_logo') && $company->logo !== null) {
             Storage::disk('public')->delete($company->logo);
@@ -172,6 +182,7 @@ class CompanyController extends Controller
         }
 
         $this->syncUsers($company, $userIds);
+        $audit->recordChanges('companies', 'updated', $company, $oldValues, $company->getChanges(), $request);
 
         if ((int) $request->session()->get('current_company_id') === $company->id && ! $company->fresh()->isActive()) {
             $request->session()->forget('current_company_id');
@@ -179,15 +190,16 @@ class CompanyController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Company updated.')]);
 
-        return to_route('companies.show', $company);
+        return to_route('companies.index');
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, Company $company): RedirectResponse
+    public function destroy(Request $request, Company $company, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('delete', $company);
+        $oldValues = $company->only($this->auditedAttributes());
 
         if ($company->logo !== null) {
             Storage::disk('public')->delete($company->logo);
@@ -198,28 +210,33 @@ class CompanyController extends Controller
         }
 
         $company->delete();
+        $audit->record('companies', 'deleted', $company, oldValues: $oldValues, request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Company deleted.')]);
 
         return to_route('companies.index');
     }
 
-    public function activate(Request $request, Company $company): RedirectResponse
+    public function activate(Request $request, Company $company, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $company);
+        $oldValues = $company->only(['status']);
 
         $company->update(['status' => Company::STATUS_ACTIVE]);
+        $audit->recordChanges('companies', 'status_changed', $company, $oldValues, $company->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Company activated.')]);
 
         return back();
     }
 
-    public function deactivate(Request $request, Company $company): RedirectResponse
+    public function deactivate(Request $request, Company $company, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $company);
+        $oldValues = $company->only(['status']);
 
         $company->update(['status' => Company::STATUS_INACTIVE]);
+        $audit->recordChanges('companies', 'status_changed', $company, $oldValues, $company->getChanges(), $request);
 
         if ((int) $request->session()->get('current_company_id') === $company->id) {
             $request->session()->forget('current_company_id');
@@ -245,6 +262,8 @@ class CompanyController extends Controller
             'phone' => $validated['phone'] ?? null,
             'address' => $validated['address'] ?? null,
             'logo' => $validated['logo'] ?? null,
+            'purchasing_assistant_name' => $validated['purchasing_assistant_name'] ?? null,
+            'corporate_sales_manager_name' => $validated['corporate_sales_manager_name'] ?? null,
             'status' => $validated['status'],
         ];
     }
@@ -265,6 +284,8 @@ class CompanyController extends Controller
             'address' => $company->address,
             'logo' => $company->logo,
             'logo_url' => $company->logo === null ? null : Storage::disk('public')->url($company->logo),
+            'purchasing_assistant_name' => $company->purchasing_assistant_name,
+            'corporate_sales_manager_name' => $company->corporate_sales_manager_name,
             'status' => $company->status,
             'created_at' => $company->created_at?->toDateString(),
             'users' => $company->relationLoaded('users')
@@ -273,6 +294,9 @@ class CompanyController extends Controller
                     'name' => $user->name,
                     'email' => $user->email,
                 ])->values()
+                : [],
+            'documents' => $company->relationLoaded('documents')
+                ? $company->documents->map->toPayload()->values()
                 : [],
         ];
     }
@@ -304,5 +328,13 @@ class CompanyController extends Controller
             ->whereIn('id', $userIds)
             ->pluck('id')
             ->all());
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function auditedAttributes(): array
+    {
+        return ['company_code', 'company_name', 'trade_name', 'tin', 'email', 'phone', 'address', 'logo', 'purchasing_assistant_name', 'corporate_sales_manager_name', 'status'];
     }
 }

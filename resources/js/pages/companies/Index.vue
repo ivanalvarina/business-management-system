@@ -84,7 +84,7 @@ const submitSearch = () => {
         <Card>
             <CardContent class="space-y-4">
                 <form
-                    class="flex flex-col gap-2 md:max-w-2xl md:flex-row"
+                    class="flex flex-col gap-2 md:max-w-7xl md:flex-row"
                     @submit.prevent="submitSearch"
                 >
                     <Input v-model="search" placeholder="Search companies" />

@@ -33,7 +33,6 @@ defineProps<{
         >
             <!-- Header -->
             <div class="mb-8 text-center">
-
                 <h1 class="text-2xl font-semibold tracking-tight">
                     Business Management System
                 </h1>
@@ -110,14 +109,8 @@ defineProps<{
                         for="remember"
                         class="flex cursor-pointer items-center gap-2"
                     >
-                        <Checkbox
-                            id="remember"
-                            name="remember"
-                            :tabindex="3"
-                        />
-                        <span class="text-sm font-normal">
-                            Remember me
-                        </span>
+                        <Checkbox id="remember" name="remember" :tabindex="3" />
+                        <span class="text-sm font-normal"> Remember me </span>
                     </Label>
                 </div>
 
@@ -137,7 +130,13 @@ defineProps<{
             <div
                 class="mt-8 border-t border-border pt-5 text-center text-xs text-muted-foreground"
             >
-                Powered by <a href="https://leepeapp.com/" target="_blank" class="font-medium text-primary hover:underline">Leepe Outsourcing Corp.</a>
+                Powered by
+                <a
+                    href="https://leepeapp.com/"
+                    target="_blank"
+                    class="font-medium text-primary hover:underline"
+                    >Leepe Outsourcing Corp.</a
+                >
             </div>
         </div>
     </div>

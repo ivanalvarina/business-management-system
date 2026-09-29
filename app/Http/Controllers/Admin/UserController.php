@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
+use App\Models\AuditLog;
 use App\Models\User;
+use App\Support\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -73,7 +75,7 @@ class UserController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreUserRequest $request): RedirectResponse
+    public function store(StoreUserRequest $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -85,6 +87,10 @@ class UserController extends Controller
         ]);
 
         $this->syncRoles($user, $validated['roles'] ?? []);
+        $audit->record('users', 'created', $user, newValues: [
+            ...$user->only($this->auditedAttributes()),
+            'role_ids' => $validated['roles'] ?? [],
+        ], request: $request);
         Password::sendResetLink(['email' => $user->email]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User created and password reset link sent.')]);
@@ -111,6 +117,7 @@ class UserController extends Controller
                 'created_at' => $user->created_at?->toDateString(),
                 'roles' => $user->roles->pluck('name')->values(),
             ],
+            'activityLogs' => AuditLog::recentFor($user),
             'can' => [
                 'edit' => $request->user()->can('users.edit'),
                 'delete' => $request->user()->can('users.delete'),
@@ -142,9 +149,13 @@ class UserController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateUserRequest $request, User $user): RedirectResponse
+    public function update(UpdateUserRequest $request, User $user, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
+        $oldValues = [
+            ...$user->only($this->auditedAttributes()),
+            'role_ids' => $user->roles()->pluck('roles.id')->all(),
+        ];
 
         $user->update([
             'name' => $validated['name'],
@@ -153,6 +164,10 @@ class UserController extends Controller
         ]);
 
         $this->syncRoles($user, $validated['roles'] ?? []);
+        $audit->record('users', 'updated', $user, oldValues: $oldValues, newValues: [
+            ...$user->only($this->auditedAttributes()),
+            'role_ids' => $validated['roles'] ?? [],
+        ], request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User updated.')]);
 
@@ -162,7 +177,7 @@ class UserController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, User $user): RedirectResponse
+    public function destroy(Request $request, User $user, AuditLogger $audit): RedirectResponse
     {
         $request->user()->can('users.delete') || abort(403);
 
@@ -172,26 +187,30 @@ class UserController extends Controller
             return back();
         }
 
+        $oldValues = $user->only($this->auditedAttributes());
         $user->syncRoles([]);
         $user->delete();
+        $audit->record('users', 'deleted', $user, oldValues: $oldValues, request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User deleted.')]);
 
         return to_route('admin.users.index');
     }
 
-    public function activate(Request $request, User $user): RedirectResponse
+    public function activate(Request $request, User $user, AuditLogger $audit): RedirectResponse
     {
         $request->user()->can('users.edit') || abort(403);
 
+        $oldValues = $user->only(['is_active']);
         $user->update(['is_active' => true]);
+        $audit->recordChanges('users', 'status_changed', $user, $oldValues, $user->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User activated.')]);
 
         return back();
     }
 
-    public function deactivate(Request $request, User $user): RedirectResponse
+    public function deactivate(Request $request, User $user, AuditLogger $audit): RedirectResponse
     {
         $request->user()->can('users.edit') || abort(403);
 
@@ -201,18 +220,21 @@ class UserController extends Controller
             return back();
         }
 
+        $oldValues = $user->only(['is_active']);
         $user->update(['is_active' => false]);
+        $audit->recordChanges('users', 'status_changed', $user, $oldValues, $user->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User deactivated.')]);
 
         return back();
     }
 
-    public function sendPasswordResetLink(Request $request, User $user): RedirectResponse
+    public function sendPasswordResetLink(Request $request, User $user, AuditLogger $audit): RedirectResponse
     {
         $request->user()->can('users.edit') || abort(403);
 
         Password::sendResetLink(['email' => $user->email]);
+        $audit->record('users', 'password_reset_link_sent', $user, request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Password reset link sent.')]);
 
@@ -245,5 +267,13 @@ class UserController extends Controller
             ->where('guard_name', 'web')
             ->whereIn('id', $roleIds)
             ->get());
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function auditedAttributes(): array
+    {
+        return ['name', 'email', 'is_active'];
     }
 }

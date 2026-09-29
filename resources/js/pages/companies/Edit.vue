@@ -8,7 +8,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { index, show } from '@/routes/companies';
+import { index } from '@/routes/companies';
+import FormTIN from '@/components/FormTIN.vue';
+import FormPhone from '@/components/FormPhone.vue';
 
 type UserOption = {
     id: number;
@@ -26,6 +28,8 @@ type Company = {
     phone: string | null;
     address: string | null;
     logo_url: string | null;
+    purchasing_assistant_name: string | null;
+    corporate_sales_manager_name: string | null;
     status: 'active' | 'inactive';
     user_ids: number[];
 };
@@ -54,6 +58,9 @@ const form = useForm({
     address: props.company.address ?? '',
     logo: null as File | null,
     remove_logo: false,
+    purchasing_assistant_name: props.company.purchasing_assistant_name ?? '',
+    corporate_sales_manager_name:
+        props.company.corporate_sales_manager_name ?? '',
     status: props.company.status,
     user_ids: [...props.company.user_ids],
 });
@@ -87,7 +94,7 @@ const submit = () => {
 
         <Card>
             <CardContent>
-                <form class="max-w-4xl space-y-6" @submit.prevent="submit">
+                <form class="max-w-7xl space-y-6" @submit.prevent="submit">
                     <div class="grid gap-4 md:grid-cols-2">
                         <div class="grid gap-2">
                             <Label for="company_code">Company code</Label>
@@ -112,7 +119,7 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="tin">TIN</Label>
-                            <Input id="tin" v-model="form.tin" />
+                            <FormTIN v-model="form.tin" />
                             <InputError :message="form.errors.tin" />
                         </div>
                         <div class="grid gap-2">
@@ -126,7 +133,7 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="phone">Phone</Label>
-                            <Input id="phone" v-model="form.phone" />
+                            <FormPhone v-model="form.phone" />
                             <InputError :message="form.errors.phone" />
                         </div>
                         <div class="grid gap-2 md:col-span-2">
@@ -140,6 +147,28 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="logo">Logo</Label>
+                            <div
+                                v-if="company.logo_url && !form.remove_logo"
+                                class="flex items-center gap-3 rounded-lg border bg-muted/20 p-3"
+                            >
+                                <img
+                                    :src="company.logo_url"
+                                    :alt="`${company.company_name} logo`"
+                                    class="size-16 rounded-md border bg-background object-contain p-2"
+                                />
+                                <div class="min-w-0 text-sm">
+                                    <p class="font-medium">Current logo</p>
+                                    <p class="truncate text-muted-foreground">
+                                        {{ company.company_name }}
+                                    </p>
+                                </div>
+                            </div>
+                            <div
+                                v-else
+                                class="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground"
+                            >
+                                No logo
+                            </div>
                             <Input
                                 id="logo"
                                 type="file"
@@ -159,6 +188,32 @@ const submit = () => {
                                 Remove current logo
                             </label>
                             <InputError :message="form.errors.logo" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="purchasing_assistant_name">
+                                Purchasing assistant
+                            </Label>
+                            <Input
+                                id="purchasing_assistant_name"
+                                v-model="form.purchasing_assistant_name"
+                            />
+                            <InputError
+                                :message="form.errors.purchasing_assistant_name"
+                            />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="corporate_sales_manager_name">
+                                Corporate sales manager
+                            </Label>
+                            <Input
+                                id="corporate_sales_manager_name"
+                                v-model="form.corporate_sales_manager_name"
+                            />
+                            <InputError
+                                :message="
+                                    form.errors.corporate_sales_manager_name
+                                "
+                            />
                         </div>
                         <div class="grid gap-2">
                             <Label for="status">Status</Label>
@@ -209,7 +264,7 @@ const submit = () => {
                             >Save changes</Button
                         >
                         <Button variant="outline" as-child>
-                            <Link :href="show(company.id)">Cancel</Link>
+                            <Link :href="index()">Cancel</Link>
                         </Button>
                     </div>
                 </form>

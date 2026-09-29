@@ -19,6 +19,7 @@ export type CompanyContextCompany = {
     id: number;
     company_code: string;
     company_name: string;
+    logo_url: string | null;
 };
 
 export type CompanyContext = {

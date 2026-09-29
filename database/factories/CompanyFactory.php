@@ -26,6 +26,8 @@ class CompanyFactory extends Factory
             'phone' => fake()->optional()->phoneNumber(),
             'address' => fake()->optional()->address(),
             'logo' => null,
+            'purchasing_assistant_name' => null,
+            'corporate_sales_manager_name' => null,
             'status' => Company::STATUS_ACTIVE,
         ];
     }

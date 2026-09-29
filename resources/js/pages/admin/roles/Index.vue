@@ -82,7 +82,7 @@ const submitSearch = () => {
         <Card>
             <CardContent class="space-y-4">
                 <form
-                    class="flex max-w-md gap-2"
+                    class="flex max-w-7xl gap-2"
                     @submit.prevent="submitSearch"
                 >
                     <Input v-model="search" placeholder="Search roles" />

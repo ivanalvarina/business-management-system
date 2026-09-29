@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -20,11 +21,13 @@ use Illuminate\Support\Carbon;
  * @property string|null $phone
  * @property string|null $address
  * @property string|null $logo
+ * @property string|null $purchasing_assistant_name
+ * @property string|null $corporate_sales_manager_name
  * @property string $status
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['company_code', 'company_name', 'trade_name', 'tin', 'email', 'phone', 'address', 'logo', 'status'])]
+#[Fillable(['company_code', 'company_name', 'trade_name', 'tin', 'email', 'phone', 'address', 'logo', 'purchasing_assistant_name', 'corporate_sales_manager_name', 'status'])]
 class Company extends Model
 {
     public const STATUS_ACTIVE = 'active';
@@ -60,6 +63,14 @@ class Company extends Model
         return $this->belongsToMany(Vendor::class, 'company_vendor')
             ->withPivot('status')
             ->withTimestamps();
+    }
+
+    /**
+     * @return MorphMany<Document, $this>
+     */
+    public function documents(): MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable')->latest();
     }
 
     /**

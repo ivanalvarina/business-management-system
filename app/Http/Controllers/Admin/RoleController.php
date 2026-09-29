@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreRoleRequest;
 use App\Http\Requests\Admin\UpdateRoleRequest;
+use App\Models\AuditLog;
+use App\Support\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -65,7 +67,7 @@ class RoleController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreRoleRequest $request): RedirectResponse
+    public function store(StoreRoleRequest $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -75,6 +77,10 @@ class RoleController extends Controller
         $role->save();
 
         $this->syncPermissions($role, $validated['permissions'] ?? []);
+        $audit->record('roles', 'created', $role, newValues: [
+            'name' => $role->name,
+            'permission_ids' => $validated['permissions'] ?? [],
+        ], request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Role created.')]);
 
@@ -100,6 +106,7 @@ class RoleController extends Controller
                     ->pluck('name')
                     ->values(),
             ],
+            'activityLogs' => AuditLog::recentFor($role),
             'can' => [
                 'edit' => $request->user()->can('roles.edit'),
                 'delete' => $request->user()->can('roles.delete'),
@@ -129,15 +136,23 @@ class RoleController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateRoleRequest $request, Role $role): RedirectResponse
+    public function update(UpdateRoleRequest $request, Role $role, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
+        $oldValues = [
+            'name' => $role->name,
+            'permission_ids' => $role->permissions()->pluck('permissions.id')->all(),
+        ];
 
         $role->update([
             'name' => $validated['name'],
         ]);
 
         $this->syncPermissions($role, $validated['permissions'] ?? []);
+        $audit->record('roles', 'updated', $role, oldValues: $oldValues, newValues: [
+            'name' => $role->name,
+            'permission_ids' => $validated['permissions'] ?? [],
+        ], request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Role updated.')]);
 
@@ -147,7 +162,7 @@ class RoleController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, Role $role): RedirectResponse
+    public function destroy(Request $request, Role $role, AuditLogger $audit): RedirectResponse
     {
         $request->user()->can('roles.delete') || abort(403);
 
@@ -159,7 +174,9 @@ class RoleController extends Controller
             return back();
         }
 
+        $oldValues = ['name' => $role->name];
         $role->delete();
+        $audit->record('roles', 'deleted', $role, oldValues: $oldValues, request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Role deleted.')]);
 

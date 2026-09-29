@@ -9,6 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { index } from '@/routes/companies';
+import FormTIN from '@/components/FormTIN.vue';
+import FormPhone from '@/components/FormPhone.vue';
 
 type UserOption = {
     id: number;
@@ -38,6 +40,8 @@ const form = useForm({
     phone: '',
     address: '',
     logo: null as File | null,
+    purchasing_assistant_name: '',
+    corporate_sales_manager_name: '',
     status: 'active',
     user_ids: [] as number[],
 });
@@ -71,7 +75,7 @@ const submit = () => {
 
         <Card>
             <CardContent>
-                <form class="max-w-4xl space-y-6" @submit.prevent="submit">
+                <form class="max-w-7xl space-y-6" @submit.prevent="submit">
                     <div class="grid gap-4 md:grid-cols-2">
                         <div class="grid gap-2">
                             <Label for="company_code">Company code</Label>
@@ -96,7 +100,7 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="tin">TIN</Label>
-                            <Input id="tin" v-model="form.tin" />
+                            <FormTIN v-model="form.tin" />
                             <InputError :message="form.errors.tin" />
                         </div>
                         <div class="grid gap-2">
@@ -110,7 +114,7 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="phone">Phone</Label>
-                            <Input id="phone" v-model="form.phone" />
+                            <FormPhone v-model="form.phone" />
                             <InputError :message="form.errors.phone" />
                         </div>
                         <div class="grid gap-2 md:col-span-2">
@@ -131,6 +135,32 @@ const submit = () => {
                                 @change="selectLogo"
                             />
                             <InputError :message="form.errors.logo" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="purchasing_assistant_name">
+                                Purchasing assistant
+                            </Label>
+                            <Input
+                                id="purchasing_assistant_name"
+                                v-model="form.purchasing_assistant_name"
+                            />
+                            <InputError
+                                :message="form.errors.purchasing_assistant_name"
+                            />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="corporate_sales_manager_name">
+                                Corporate sales manager
+                            </Label>
+                            <Input
+                                id="corporate_sales_manager_name"
+                                v-model="form.corporate_sales_manager_name"
+                            />
+                            <InputError
+                                :message="
+                                    form.errors.corporate_sales_manager_name
+                                "
+                            />
                         </div>
                         <div class="grid gap-2">
                             <Label for="status">Status</Label>

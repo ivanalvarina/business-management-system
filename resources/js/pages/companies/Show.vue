@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import CompanyController from '@/actions/App/Http/Controllers/CompanyController';
+import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
+import DocumentsPanel from '@/components/app/DocumentsPanel.vue';
 import { update as switchCompany } from '@/routes/current-company';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
@@ -14,6 +16,25 @@ type AssignedUser = {
     email: string;
 };
 
+type DocumentRecord = {
+    id: number;
+    document_type: string;
+    original_filename: string;
+    mime_type: string;
+    file_size: number;
+    expiration_date: string | null;
+    created_at: string | null;
+    uploader: { id: number; name: string } | null;
+};
+
+type ActivityLog = {
+    id: number;
+    module: string;
+    action: string;
+    created_at: string | null;
+    user: { id: number; name: string } | null;
+};
+
 type Company = {
     id: number;
     company_code: string;
@@ -24,17 +45,24 @@ type Company = {
     phone: string | null;
     address: string | null;
     logo_url: string | null;
+    purchasing_assistant_name: string | null;
+    corporate_sales_manager_name: string | null;
     status: 'active' | 'inactive';
     created_at: string | null;
     users: AssignedUser[];
+    documents: DocumentRecord[];
 };
 
 const props = defineProps<{
     company: Company;
+    activityLogs: ActivityLog[];
     can: {
         edit: boolean;
         delete: boolean;
         switch: boolean;
+        uploadDocuments: boolean;
+        downloadDocuments: boolean;
+        deleteDocuments: boolean;
     };
 }>();
 
@@ -154,6 +182,25 @@ const deleteCompany = () => {
                         </p>
                     </div>
                     <div>
+                        <p class="text-sm text-muted-foreground">
+                            Purchasing assistant
+                        </p>
+                        <p class="font-medium">
+                            {{ company.purchasing_assistant_name ?? 'Not set' }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">
+                            Corporate sales manager
+                        </p>
+                        <p class="font-medium">
+                            {{
+                                company.corporate_sales_manager_name ??
+                                'Not set'
+                            }}
+                        </p>
+                    </div>
+                    <div>
                         <p class="text-sm text-muted-foreground">Created</p>
                         <p class="font-medium">
                             {{ company.created_at ?? 'Unknown' }}
@@ -190,5 +237,18 @@ const deleteCompany = () => {
                 </CardContent>
             </Card>
         </div>
+
+        <DocumentsPanel
+            documentable-type="company"
+            :documentable-id="company.id"
+            :documents="company.documents"
+            :can="{
+                upload: can.uploadDocuments,
+                download: can.downloadDocuments,
+                delete: can.deleteDocuments,
+            }"
+        />
+
+        <ActivityHistoryPanel :logs="activityLogs" />
     </div>
 </template>

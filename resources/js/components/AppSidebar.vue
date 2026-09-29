@@ -32,13 +32,25 @@ import {
 import { dashboard } from '@/routes';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as auditLogsIndex } from '@/routes/audit-logs';
+import { index as clientPosIndex } from '@/routes/client-pos';
 import { index as clientsIndex } from '@/routes/clients';
 import { index as companiesIndex } from '@/routes/companies';
+import { index as documentsIndex } from '@/routes/documents';
 import { index as productServicesIndex } from '@/routes/product-services';
+import { index as purchaseOrdersIndex } from '@/routes/purchase-orders';
+import { index as purchaseRequestsIndex } from '@/routes/purchase-requests';
+import { index as quotationsIndex } from '@/routes/quotations';
+import { index as receivingReceiptsIndex } from '@/routes/receiving-receipts';
+import { index as reportsIndex } from '@/routes/reports';
 import { index as vendorsIndex } from '@/routes/vendors';
 import type { NavSection } from '@/types';
 
 const page = usePage();
+
+const currentCompanyLogoUrl = computed(
+    () => page.props.companyContext.current?.logo_url,
+);
 
 const can = (permission: string) =>
     page.props.auth.permissions.includes(permission);
@@ -89,16 +101,14 @@ const navigationSections = computed<NavSection[]>(() =>
             items: [
                 {
                     title: 'Quotations',
-                    href: dashboard(),
+                    href: quotationsIndex(),
                     icon: ReceiptText,
-                    disabled: true,
                     permission: 'quotations.view',
                 },
                 {
                     title: 'Client Purchase Orders',
-                    href: dashboard(),
+                    href: clientPosIndex(),
                     icon: FileText,
-                    disabled: true,
                     permission: 'client-pos.view',
                 },
             ],
@@ -107,11 +117,22 @@ const navigationSections = computed<NavSection[]>(() =>
             title: 'Procurement',
             items: [
                 {
+                    title: 'Purchase Requests',
+                    href: purchaseRequestsIndex(),
+                    icon: ScrollText,
+                    permission: 'purchase-requests.view',
+                },
+                {
                     title: 'Purchase Orders',
-                    href: dashboard(),
+                    href: purchaseOrdersIndex(),
                     icon: ShoppingCart,
-                    disabled: true,
                     permission: 'purchase-orders.view',
+                },
+                {
+                    title: 'Receiving Receipts',
+                    href: receivingReceiptsIndex(),
+                    icon: ReceiptText,
+                    permission: 'receiving-receipts.view',
                 },
             ],
         },
@@ -120,9 +141,8 @@ const navigationSections = computed<NavSection[]>(() =>
             items: [
                 {
                     title: 'Documents',
-                    href: dashboard(),
+                    href: documentsIndex(),
                     icon: FileArchive,
-                    disabled: true,
                     permission: 'documents.view',
                 },
             ],
@@ -132,9 +152,8 @@ const navigationSections = computed<NavSection[]>(() =>
             items: [
                 {
                     title: 'Reports',
-                    href: dashboard(),
+                    href: reportsIndex(),
                     icon: BarChart3,
-                    disabled: true,
                     permission: 'reports.view',
                 },
             ],
@@ -163,9 +182,8 @@ const navigationSections = computed<NavSection[]>(() =>
                 },
                 {
                     title: 'Audit Trail',
-                    href: dashboard(),
+                    href: auditLogsIndex(),
                     icon: ScrollText,
-                    disabled: true,
                     permission: 'audit-logs.view',
                 },
                 {
@@ -193,9 +211,15 @@ const navigationSections = computed<NavSection[]>(() =>
         <SidebarHeader>
             <SidebarMenu>
                 <SidebarMenuItem>
-                    <SidebarMenuButton size="lg" as-child>
+                    <SidebarMenuButton size="lg" class="h-16" as-child>
                         <Link :href="dashboard()">
-                            <AppLogo />
+                            <!-- <AppLogo /> -->
+                            <img
+                                v-if="currentCompanyLogoUrl"
+                                :src="currentCompanyLogoUrl"
+                                alt=""
+                                class="ml-auto h-12 w-64 rounded-lg border bg-background object-contain p-1.5 group-data-[collapsible=icon]:hidden"
+                            />
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>

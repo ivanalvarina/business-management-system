@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { watch } from 'vue';
 import ProductServiceController from '@/actions/App/Http/Controllers/ProductServiceController';
 import PageHeader from '@/components/app/PageHeader.vue';
 import InputError from '@/components/InputError.vue';
+import ProductImageUploader from '@/components/product-services/ProductImageUploader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,10 +27,26 @@ const form = useForm({
     description: '',
     unit: '',
     default_price: '0.00',
+    quantity: 0,
     status: 'active',
+    is_public: false,
+    images: [] as File[],
+    primary_new_image_index: null as number | null,
 });
 
-const submit = () => form.post(ProductServiceController.store.url());
+watch(
+    () => form.type,
+    (type) => {
+        if (type === 'service') {
+            form.quantity = 0;
+            form.images = [];
+            form.primary_new_image_index = null;
+        }
+    },
+);
+
+const submit = () =>
+    form.post(ProductServiceController.store.url(), { forceFormData: true });
 </script>
 
 <template>
@@ -42,7 +60,7 @@ const submit = () => form.post(ProductServiceController.store.url());
 
         <Card>
             <CardContent>
-                <form class="max-w-4xl space-y-6" @submit.prevent="submit">
+                <form class="max-w-6xl space-y-6" @submit.prevent="submit">
                     <div class="grid gap-4 md:grid-cols-2">
                         <div class="grid gap-2">
                             <Label for="code">Code</Label>
@@ -80,6 +98,17 @@ const submit = () => form.post(ProductServiceController.store.url());
                             />
                             <InputError :message="form.errors.default_price" />
                         </div>
+                        <div v-if="form.type === 'product'" class="grid gap-2">
+                            <Label for="quantity">Quantity</Label>
+                            <Input
+                                id="quantity"
+                                v-model.number="form.quantity"
+                                type="number"
+                                min="0"
+                                step="1"
+                            />
+                            <InputError :message="form.errors.quantity" />
+                        </div>
                         <div class="grid gap-2">
                             <Label for="status">Status</Label>
                             <select
@@ -92,6 +121,14 @@ const submit = () => form.post(ProductServiceController.store.url());
                             </select>
                             <InputError :message="form.errors.status" />
                         </div>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input
+                                v-model="form.is_public"
+                                type="checkbox"
+                                class="size-4 rounded border-input"
+                            />
+                            Public QR product page
+                        </label>
                         <div class="grid gap-2 md:col-span-2">
                             <Label for="description">Description</Label>
                             <textarea
@@ -101,6 +138,15 @@ const submit = () => form.post(ProductServiceController.store.url());
                             />
                             <InputError :message="form.errors.description" />
                         </div>
+                        <ProductImageUploader
+                            v-if="form.type === 'product'"
+                            class="md:col-span-2"
+                            :errors="form.errors"
+                            @update:new-images="form.images = $event"
+                            @update:primary-new-image-index="
+                                form.primary_new_image_index = $event
+                            "
+                        />
                     </div>
 
                     <div class="flex gap-2">

@@ -10,6 +10,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { index, show } from '@/routes/vendors';
+import FormTIN from '@/components/FormTIN.vue';
+import FormPhone from '@/components/FormPhone.vue';
+import ContactPersons from '@/components/ContactPersons.vue';
 
 type CompanyOption = {
     id: number;
@@ -133,16 +136,15 @@ const submit = () => {
             :description="vendor.vendor_code"
         />
 
-        <form
-            class="grid gap-6 xl:grid-cols-[2fr_1fr]"
-            @submit.prevent="submit"
-        >
+        <form class="grid gap-6" @submit.prevent="submit">
+            <!-- Vendor details -->
             <Card>
                 <CardHeader>
                     <CardTitle>Vendor details</CardTitle>
                 </CardHeader>
-                <CardContent class="space-y-6">
-                    <div class="grid gap-4 md:grid-cols-2">
+                <CardContent>
+                    <div class="grid gap-4 md:grid-cols-3">
+                        <!-- Row 1 -->
                         <div class="grid gap-2">
                             <Label for="vendor_code">Vendor code</Label>
                             <Input
@@ -164,9 +166,11 @@ const submit = () => {
                             <Input id="trade_name" v-model="form.trade_name" />
                             <InputError :message="form.errors.trade_name" />
                         </div>
+
+                        <!-- Row 2 -->
                         <div class="grid gap-2">
                             <Label for="tin">TIN</Label>
-                            <Input id="tin" v-model="form.tin" />
+                            <FormTIN id="tin" v-model="form.tin" />
                             <InputError :message="form.errors.tin" />
                         </div>
                         <div class="grid gap-2">
@@ -180,9 +184,11 @@ const submit = () => {
                         </div>
                         <div class="grid gap-2">
                             <Label for="phone">Phone</Label>
-                            <Input id="phone" v-model="form.phone" />
+                            <FormPhone id="phone" v-model="form.phone" />
                             <InputError :message="form.errors.phone" />
                         </div>
+
+                        <!-- Row 3 -->
                         <div class="grid gap-2">
                             <Label for="status">Status</Label>
                             <select
@@ -214,7 +220,7 @@ const submit = () => {
                                 :message="form.errors.vendor_category_id"
                             />
                         </div>
-                        <div class="grid gap-2 md:col-span-2">
+                        <div class="grid gap-2">
                             <Label for="new_category_name">New category</Label>
                             <Input
                                 id="new_category_name"
@@ -224,7 +230,9 @@ const submit = () => {
                                 :message="form.errors.new_category_name"
                             />
                         </div>
-                        <div class="grid gap-2 md:col-span-2">
+
+                        <!-- Row 4 -->
+                        <div class="grid gap-2 md:col-span-3">
                             <Label for="address">Address</Label>
                             <textarea
                                 id="address"
@@ -237,37 +245,56 @@ const submit = () => {
                 </CardContent>
             </Card>
 
+            <!-- Company coverage: full-width, nasa ilalim ng details -->
             <Card>
-                <CardHeader>
+                <CardHeader
+                    class="flex flex-row items-center justify-between gap-3"
+                >
                     <CardTitle>Company coverage</CardTitle>
+                    <span class="text-sm text-muted-foreground">
+                        {{
+                            form.company_ids.length
+                                ? `${form.company_ids.length} selected`
+                                : 'None selected'
+                        }}
+                    </span>
                 </CardHeader>
                 <CardContent class="space-y-3">
-                    <label
-                        v-for="company in companies"
-                        :key="company.id"
-                        class="flex items-center gap-2 rounded-lg border p-3 text-sm"
-                    >
-                        <Checkbox
-                            :model-value="form.company_ids.includes(company.id)"
-                            @update:model-value="
-                                toggleCompany(company.id, Boolean($event))
-                            "
-                        />
-                        <span class="min-w-0">
-                            <span class="block truncate font-medium">{{
-                                company.company_name
-                            }}</span>
-                            <span
-                                class="block truncate text-muted-foreground"
-                                >{{ company.company_code }}</span
-                            >
-                        </span>
-                    </label>
+                    <div class="grid gap-3 md:grid-cols-3">
+                        <label
+                            v-for="company in companies"
+                            :key="company.id"
+                            class="flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-sm transition-colors"
+                            :class="{
+                                'border-foreground bg-muted/50':
+                                    form.company_ids.includes(company.id),
+                            }"
+                        >
+                            <Checkbox
+                                :model-value="
+                                    form.company_ids.includes(company.id)
+                                "
+                                @update:model-value="
+                                    toggleCompany(company.id, Boolean($event))
+                                "
+                            />
+                            <span class="min-w-0">
+                                <span class="block truncate font-medium">{{
+                                    company.company_name
+                                }}</span>
+                                <span
+                                    class="block truncate text-muted-foreground"
+                                    >{{ company.company_code }}</span
+                                >
+                            </span>
+                        </label>
+                    </div>
                     <InputError :message="form.errors.company_ids" />
                 </CardContent>
             </Card>
 
-            <Card class="xl:col-span-2">
+            <!-- Contact persons -->
+            <Card>
                 <CardHeader
                     class="flex flex-row items-center justify-between gap-3"
                 >
@@ -276,94 +303,37 @@ const submit = () => {
                         >Add contact</Button
                     >
                 </CardHeader>
-                <CardContent class="space-y-4">
-                    <div
-                        v-for="(contact, contactIndex) in form.contacts"
-                        :key="contact.id ?? contactIndex"
-                        class="grid gap-3 rounded-lg border p-4 lg:grid-cols-6"
-                    >
-                        <div class="grid gap-2 lg:col-span-2">
-                            <Label :for="`contact_name_${contactIndex}`"
-                                >Name</Label
-                            >
-                            <Input
-                                :id="`contact_name_${contactIndex}`"
-                                v-model="contact.name"
-                            />
-                        </div>
-                        <div class="grid gap-2">
-                            <Label :for="`contact_position_${contactIndex}`"
-                                >Position</Label
-                            >
-                            <Input
-                                :id="`contact_position_${contactIndex}`"
-                                v-model="contact.position"
-                            />
-                        </div>
-                        <div class="grid gap-2">
-                            <Label :for="`contact_department_${contactIndex}`"
-                                >Department</Label
-                            >
-                            <Input
-                                :id="`contact_department_${contactIndex}`"
-                                v-model="contact.department"
-                            />
-                        </div>
-                        <div class="grid gap-2">
-                            <Label :for="`contact_email_${contactIndex}`"
-                                >Email</Label
-                            >
-                            <Input
-                                :id="`contact_email_${contactIndex}`"
-                                v-model="contact.email"
-                                type="email"
-                            />
-                        </div>
-                        <div class="grid gap-2">
-                            <Label :for="`contact_phone_${contactIndex}`"
-                                >Phone</Label
-                            >
-                            <Input
-                                :id="`contact_phone_${contactIndex}`"
-                                v-model="contact.phone"
-                            />
-                        </div>
-                        <div class="grid gap-2">
-                            <Label :for="`contact_mobile_${contactIndex}`"
-                                >Mobile</Label
-                            >
-                            <Input
-                                :id="`contact_mobile_${contactIndex}`"
-                                v-model="contact.mobile"
-                            />
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <Checkbox
-                                :model-value="contact.is_primary"
-                                @update:model-value="makePrimary(contactIndex)"
-                            />
-                            <span class="text-sm">Primary</span>
-                        </div>
-                        <div class="flex justify-end">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                @click="removeContact(contactIndex)"
-                            >
-                                <Trash2 />
-                            </Button>
-                        </div>
-                    </div>
-                    <InputError :message="form.errors.contacts" />
-                </CardContent>
+                <ContactPersons
+                    v-model="form.contacts"
+                    :error="form.errors.contacts"
+                />
             </Card>
 
-            <div class="flex gap-2 xl:col-span-2">
-                <Button :disabled="form.processing">Save changes</Button>
-                <Button variant="outline" as-child>
-                    <Link :href="show(vendor.id)">Cancel</Link>
-                </Button>
+            <!-- Sticky action bar -->
+            <div
+                class="sticky bottom-0 z-10 -mb-4 flex items-center justify-between gap-3 border-t bg-background py-4"
+            >
+                <div class="text-sm text-muted-foreground">
+                    Coverage:
+                    <span class="font-medium text-foreground">
+                        {{
+                            form.company_ids.length
+                                ? `${form.company_ids.length} ${form.company_ids.length > 1 ? 'companies' : 'company'}`
+                                : 'no companies'
+                        }}
+                    </span>
+                    ·
+                    <span class="font-medium text-foreground">
+                        {{ form.contacts.length }}
+                        {{ form.contacts.length > 1 ? 'contacts' : 'contact' }}
+                    </span>
+                </div>
+                <div class="flex gap-2">
+                    <Button variant="outline" as-child>
+                        <Link :href="show(vendor.id)">Cancel</Link>
+                    </Button>
+                    <Button :disabled="form.processing">Save changes</Button>
+                </div>
             </div>
         </form>
     </div>

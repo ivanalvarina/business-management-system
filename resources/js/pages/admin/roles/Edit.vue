@@ -65,8 +65,8 @@ const submit = () => form.submit(RoleController.update(props.role.id));
 
         <Card>
             <CardContent>
-                <form class="max-w-4xl space-y-6" @submit.prevent="submit">
-                    <div class="grid max-w-2xl gap-2">
+                <form class="max-w-7xl space-y-6" @submit.prevent="submit">
+                    <div class="grid max-w-7xl gap-2">
                         <Label for="name">Role name</Label>
                         <Input
                             id="name"
@@ -82,7 +82,7 @@ const submit = () => form.submit(RoleController.update(props.role.id));
                             <InputError :message="form.errors.permissions" />
                         </div>
 
-                        <div class="grid gap-4 lg:grid-cols-2">
+                        <div class="grid gap-4 lg:grid-cols-3">
                             <section
                                 v-for="group in permissionGroups"
                                 :key="group.name"
@@ -122,7 +122,7 @@ const submit = () => form.submit(RoleController.update(props.role.id));
                             >Save changes</Button
                         >
                         <Button variant="outline" as-child>
-                            <Link :href="show(role.id)">Cancel</Link>
+                            <Link :href="index()">Cancel</Link>
                         </Button>
                     </div>
                 </form>

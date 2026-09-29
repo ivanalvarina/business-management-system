@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import RoleController from '@/actions/App/Http/Controllers/Admin/RoleController';
+import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,17 @@ type Role = {
     permissions: string[];
 };
 
+type ActivityLog = {
+    id: number;
+    module: string;
+    action: string;
+    created_at: string | null;
+    user: { id: number; name: string } | null;
+};
+
 const props = defineProps<{
     role: Role;
+    activityLogs: ActivityLog[];
     can: {
         edit: boolean;
         delete: boolean;
@@ -96,5 +106,7 @@ const deleteRole = () => {
                 </div>
             </CardContent>
         </Card>
+
+        <ActivityHistoryPanel :logs="activityLogs" />
     </div>
 </template>

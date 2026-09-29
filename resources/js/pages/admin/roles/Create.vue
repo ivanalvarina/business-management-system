@@ -58,8 +58,8 @@ const submit = () => form.submit(RoleController.store());
 
         <Card>
             <CardContent>
-                <form class="max-w-4xl space-y-6" @submit.prevent="submit">
-                    <div class="grid max-w-2xl gap-2">
+                <form class="max-w-7xl space-y-6" @submit.prevent="submit">
+                    <div class="grid max-w-7xl gap-2">
                         <Label for="name">Role name</Label>
                         <Input
                             id="name"

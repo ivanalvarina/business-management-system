@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
+import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -17,8 +18,17 @@ type ManagedUser = {
     roles: string[];
 };
 
+type ActivityLog = {
+    id: number;
+    module: string;
+    action: string;
+    created_at: string | null;
+    user: { id: number; name: string } | null;
+};
+
 const props = defineProps<{
     managedUser: ManagedUser;
+    activityLogs: ActivityLog[];
     can: {
         edit: boolean;
         delete: boolean;
@@ -106,5 +116,7 @@ const sendReset = () => {
                 </div>
             </CardContent>
         </Card>
+
+        <ActivityHistoryPanel :logs="activityLogs" />
     </div>
 </template>

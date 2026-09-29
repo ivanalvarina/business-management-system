@@ -26,6 +26,8 @@ test('authorized users can create companies and assign user access', function ()
             'email' => 'hello@acme.test',
             'phone' => '555-1000',
             'address' => 'Main Office',
+            'purchasing_assistant_name' => 'Harold Asuncion',
+            'corporate_sales_manager_name' => 'Rose Paguia',
             'status' => Company::STATUS_ACTIVE,
             'logo' => UploadedFile::fake()->image('logo.png'),
             'user_ids' => [$assignedUser->id],
@@ -35,6 +37,8 @@ test('authorized users can create companies and assign user access', function ()
     $company = Company::where('company_code', 'ACME')->firstOrFail();
 
     expect($company->company_name)->toBe('Acme Corporation')
+        ->and($company->purchasing_assistant_name)->toBe('Harold Asuncion')
+        ->and($company->corporate_sales_manager_name)->toBe('Rose Paguia')
         ->and($company->users()->whereKey($assignedUser->id)->exists())->toBeTrue()
         ->and($company->logo)->not->toBeNull();
 
@@ -92,12 +96,16 @@ test('authorized users can update deactivate and delete companies', function () 
         ->put(route('companies.update', $company), [
             'company_code' => 'NEW',
             'company_name' => 'New Company',
+            'purchasing_assistant_name' => 'Updated Buyer',
+            'corporate_sales_manager_name' => 'Updated Manager',
             'status' => Company::STATUS_ACTIVE,
             'user_ids' => [],
         ])
-        ->assertRedirect(route('companies.show', $company));
+        ->assertRedirect(route('companies.index'));
 
-    expect($company->fresh()->company_code)->toBe('NEW');
+    expect($company->fresh()->company_code)->toBe('NEW')
+        ->and($company->fresh()->purchasing_assistant_name)->toBe('Updated Buyer')
+        ->and($company->fresh()->corporate_sales_manager_name)->toBe('Updated Manager');
 
     $this->actingAs($admin)
         ->patch(route('companies.deactivate', $company))
@@ -110,6 +118,32 @@ test('authorized users can update deactivate and delete companies', function () 
         ->assertRedirect(route('companies.index'));
 
     expect(Company::find($company->id))->toBeNull();
+});
+
+test('company update preserves existing logo when no replacement is uploaded', function () {
+    Storage::fake('public');
+
+    $admin = userWithPermissions([
+        'companies.view',
+        'companies.edit',
+        'companies.access-all',
+    ]);
+    Storage::disk('public')->put('company-logos/existing.png', 'existing logo');
+    $company = Company::factory()->create([
+        'logo' => 'company-logos/existing.png',
+    ]);
+
+    $this->actingAs($admin)
+        ->put(route('companies.update', $company), [
+            'company_code' => $company->company_code,
+            'company_name' => 'Logo Preserved Company',
+            'status' => Company::STATUS_ACTIVE,
+            'user_ids' => [],
+        ])
+        ->assertRedirect(route('companies.index'));
+
+    expect($company->fresh()->logo)->toBe('company-logos/existing.png');
+    Storage::disk('public')->assertExists('company-logos/existing.png');
 });
 
 test('company switching rejects unauthorized and inactive companies', function () {

@@ -39,6 +39,8 @@ class UpdateCompanyRequest extends FormRequest
             'phone' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string', 'max:2000'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'purchasing_assistant_name' => ['nullable', 'string', 'max:255'],
+            'corporate_sales_manager_name' => ['nullable', 'string', 'max:255'],
             'remove_logo' => ['boolean'],
             'status' => ['required', Rule::in([Company::STATUS_ACTIVE, Company::STATUS_INACTIVE])],
             'user_ids' => ['array'],

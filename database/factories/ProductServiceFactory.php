@@ -24,7 +24,9 @@ class ProductServiceFactory extends Factory
             'description' => fake()->optional()->sentence(),
             'unit' => fake()->randomElement(['pc', 'set', 'hour', 'day', 'lot']),
             'default_price' => fake()->randomFloat(2, 0, 100000),
+            'quantity' => 0,
             'status' => ProductService::STATUS_ACTIVE,
+            'is_public' => false,
         ];
     }
 }

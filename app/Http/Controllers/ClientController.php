@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
+use App\Models\AuditLog;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\User;
+use App\Support\AuditLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -104,7 +106,7 @@ class ClientController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreClientRequest $request): RedirectResponse
+    public function store(StoreClientRequest $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -119,6 +121,7 @@ class ClientController extends Controller
 
             return $client;
         });
+        $audit->record('clients', 'created', $client, newValues: $client->only($this->auditedAttributes()), request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Client created.')]);
 
@@ -132,12 +135,16 @@ class ClientController extends Controller
     {
         Gate::authorize('view', $client);
 
-        $client->load(['companies:id,company_code,company_name,status', 'contactPeople']);
+        $client->load(['companies:id,company_code,company_name,status', 'contactPeople', 'documents.uploader:id,name']);
 
         return Inertia::render('clients/Show', [
             'client' => $this->clientPayload($client),
+            'activityLogs' => AuditLog::recentFor($client),
             'can' => [
                 'edit' => $request->user()->can('update', $client),
+                'uploadDocuments' => $request->user()->can('documents.upload'),
+                'downloadDocuments' => $request->user()->can('documents.download'),
+                'deleteDocuments' => $request->user()->can('documents.delete'),
             ],
         ]);
     }
@@ -163,37 +170,43 @@ class ClientController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateClientRequest $request, Client $client): RedirectResponse
+    public function update(UpdateClientRequest $request, Client $client, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
+        $oldValues = $client->only($this->auditedAttributes());
 
         DB::transaction(function () use ($client, $validated): void {
             $client->update($this->clientAttributes($validated));
             $this->syncCompanies($client, $validated['company_ids']);
             $this->syncContactPeople($client, $validated['contacts'] ?? []);
         });
+        $audit->recordChanges('clients', 'updated', $client, $oldValues, $client->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Client updated.')]);
 
-        return to_route('clients.show', $client);
+        return to_route('clients.index');
     }
 
-    public function activate(Client $client): RedirectResponse
+    public function activate(Request $request, Client $client, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $client);
+        $oldValues = $client->only(['status']);
 
         $client->update(['status' => Client::STATUS_ACTIVE]);
+        $audit->recordChanges('clients', 'status_changed', $client, $oldValues, $client->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Client activated.')]);
 
         return back();
     }
 
-    public function deactivate(Client $client): RedirectResponse
+    public function deactivate(Request $request, Client $client, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $client);
+        $oldValues = $client->only(['status']);
 
         $client->update(['status' => Client::STATUS_INACTIVE]);
+        $audit->recordChanges('clients', 'status_changed', $client, $oldValues, $client->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Client deactivated.')]);
 
@@ -255,6 +268,9 @@ class ClientController extends Controller
                     'mobile' => $contact->mobile,
                     'is_primary' => $contact->is_primary,
                 ])->values()
+                : [],
+            'documents' => $client->relationLoaded('documents')
+                ? $client->documents->map->toPayload()->values()
                 : [],
         ];
     }
@@ -335,5 +351,13 @@ class ClientController extends Controller
                 'is_primary' => $index === $primaryIndex,
             ]);
         });
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function auditedAttributes(): array
+    {
+        return ['client_code', 'client_name', 'trade_name', 'tin', 'email', 'phone', 'billing_address', 'shipping_address', 'status'];
     }
 }

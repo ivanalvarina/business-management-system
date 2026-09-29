@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import ClientController from '@/actions/App/Http/Controllers/ClientController';
+import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
+import DocumentsPanel from '@/components/app/DocumentsPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,25 @@ type Contact = {
     is_primary: boolean;
 };
 
+type DocumentRecord = {
+    id: number;
+    document_type: string;
+    original_filename: string;
+    mime_type: string;
+    file_size: number;
+    expiration_date: string | null;
+    created_at: string | null;
+    uploader: { id: number; name: string } | null;
+};
+
+type ActivityLog = {
+    id: number;
+    module: string;
+    action: string;
+    created_at: string | null;
+    user: { id: number; name: string } | null;
+};
+
 type Client = {
     id: number;
     client_code: string;
@@ -39,12 +60,17 @@ type Client = {
     created_at: string | null;
     companies: Company[];
     contacts: Contact[];
+    documents: DocumentRecord[];
 };
 
 const props = defineProps<{
     client: Client;
+    activityLogs: ActivityLog[];
     can: {
         edit: boolean;
+        uploadDocuments: boolean;
+        downloadDocuments: boolean;
+        deleteDocuments: boolean;
     };
 }>();
 
@@ -225,5 +251,18 @@ const toggleStatus = () => {
                 </p>
             </CardContent>
         </Card>
+
+        <DocumentsPanel
+            documentable-type="client"
+            :documentable-id="client.id"
+            :documents="client.documents"
+            :can="{
+                upload: can.uploadDocuments,
+                download: can.downloadDocuments,
+                delete: can.deleteDocuments,
+            }"
+        />
+
+        <ActivityHistoryPanel :logs="activityLogs" />
     </div>
 </template>

@@ -55,7 +55,7 @@ const submit = () => form.submit(UserController.store());
 
         <Card>
             <CardContent>
-                <form class="max-w-2xl space-y-6" @submit.prevent="submit">
+                <form class="max-w-7xl space-y-6" @submit.prevent="submit">
                     <div class="grid gap-2">
                         <Label for="name">Name</Label>
                         <Input
@@ -89,7 +89,7 @@ const submit = () => form.submit(UserController.store());
 
                     <div class="space-y-3">
                         <Label>Roles</Label>
-                        <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <label
                                 v-for="role in roles"
                                 :key="role.id"

@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreVendorRequest;
 use App\Http\Requests\UpdateVendorRequest;
+use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VendorCategory;
+use App\Support\AuditLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -114,7 +116,7 @@ class VendorController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreVendorRequest $request): RedirectResponse
+    public function store(StoreVendorRequest $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -130,6 +132,7 @@ class VendorController extends Controller
 
             return $vendor;
         });
+        $audit->record('vendors', 'created', $vendor, newValues: $vendor->only($this->auditedAttributes()), request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Vendor created.')]);
 
@@ -143,12 +146,16 @@ class VendorController extends Controller
     {
         Gate::authorize('view', $vendor);
 
-        $vendor->load(['companies:id,company_code,company_name,status', 'category:id,name,status', 'contactPeople']);
+        $vendor->load(['companies:id,company_code,company_name,status', 'category:id,name,status', 'contactPeople', 'documents.uploader:id,name']);
 
         return Inertia::render('vendors/Show', [
             'vendor' => $this->vendorPayload($vendor),
+            'activityLogs' => AuditLog::recentFor($vendor),
             'can' => [
                 'edit' => $request->user()->can('update', $vendor),
+                'uploadDocuments' => $request->user()->can('documents.upload'),
+                'downloadDocuments' => $request->user()->can('documents.download'),
+                'deleteDocuments' => $request->user()->can('documents.delete'),
             ],
         ]);
     }
@@ -175,9 +182,10 @@ class VendorController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateVendorRequest $request, Vendor $vendor): RedirectResponse
+    public function update(UpdateVendorRequest $request, Vendor $vendor, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validated();
+        $oldValues = $vendor->only($this->auditedAttributes());
 
         DB::transaction(function () use ($vendor, $validated): void {
             $vendor->update([
@@ -187,28 +195,33 @@ class VendorController extends Controller
             $this->syncCompanies($vendor, $validated['company_ids']);
             $this->syncContactPeople($vendor, $validated['contacts'] ?? []);
         });
+        $audit->recordChanges('vendors', 'updated', $vendor, $oldValues, $vendor->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Vendor updated.')]);
 
         return to_route('vendors.show', $vendor);
     }
 
-    public function activate(Vendor $vendor): RedirectResponse
+    public function activate(Request $request, Vendor $vendor, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $vendor);
+        $oldValues = $vendor->only(['status']);
 
         $vendor->update(['status' => Vendor::STATUS_ACTIVE]);
+        $audit->recordChanges('vendors', 'status_changed', $vendor, $oldValues, $vendor->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Vendor activated.')]);
 
         return back();
     }
 
-    public function deactivate(Vendor $vendor): RedirectResponse
+    public function deactivate(Request $request, Vendor $vendor, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('update', $vendor);
+        $oldValues = $vendor->only(['status']);
 
         $vendor->update(['status' => Vendor::STATUS_INACTIVE]);
+        $audit->recordChanges('vendors', 'status_changed', $vendor, $oldValues, $vendor->getChanges(), $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Vendor deactivated.')]);
 
@@ -276,6 +289,9 @@ class VendorController extends Controller
                     'mobile' => $contact->mobile,
                     'is_primary' => $contact->is_primary,
                 ])->values()
+                : [],
+            'documents' => $vendor->relationLoaded('documents')
+                ? $vendor->documents->map->toPayload()->values()
                 : [],
         ];
     }
@@ -388,5 +404,13 @@ class VendorController extends Controller
                 'is_primary' => $index === $primaryIndex,
             ]);
         });
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function auditedAttributes(): array
+    {
+        return ['vendor_code', 'vendor_name', 'trade_name', 'tin', 'email', 'phone', 'address', 'vendor_category_id', 'status'];
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Company;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -45,7 +46,7 @@ class HandleInertiaRequests extends Middleware
 
         if ($user !== null) {
             $companies = Company::query()
-                ->select(['id', 'company_code', 'company_name'])
+                ->select(['id', 'company_code', 'company_name', 'logo'])
                 ->active()
                 ->when(! $user->hasGlobalCompanyAccess(), fn (Builder $query) => $query->whereHas(
                     'users',
@@ -69,12 +70,14 @@ class HandleInertiaRequests extends Middleware
                     'id' => $currentCompany->id,
                     'company_code' => $currentCompany->company_code,
                     'company_name' => $currentCompany->company_name,
+                    'logo_url' => $currentCompany->logo === null ? null : Storage::disk('public')->url($currentCompany->logo),
                 ],
                 'options' => $companies
                     ->map(fn (Company $company): array => [
                         'id' => $company->id,
                         'company_code' => $company->company_code,
                         'company_name' => $company->company_name,
+                        'logo_url' => $company->logo === null ? null : Storage::disk('public')->url($company->logo),
                     ])
                     ->values()
                     ->all(),

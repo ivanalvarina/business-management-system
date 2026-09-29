@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import VendorController from '@/actions/App/Http/Controllers/VendorController';
+import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
+import DocumentsPanel from '@/components/app/DocumentsPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
@@ -31,6 +33,25 @@ type Contact = {
     is_primary: boolean;
 };
 
+type DocumentRecord = {
+    id: number;
+    document_type: string;
+    original_filename: string;
+    mime_type: string;
+    file_size: number;
+    expiration_date: string | null;
+    created_at: string | null;
+    uploader: { id: number; name: string } | null;
+};
+
+type ActivityLog = {
+    id: number;
+    module: string;
+    action: string;
+    created_at: string | null;
+    user: { id: number; name: string } | null;
+};
+
 type Vendor = {
     id: number;
     vendor_code: string;
@@ -45,12 +66,17 @@ type Vendor = {
     category: Category | null;
     companies: Company[];
     contacts: Contact[];
+    documents: DocumentRecord[];
 };
 
 const props = defineProps<{
     vendor: Vendor;
+    activityLogs: ActivityLog[];
     can: {
         edit: boolean;
+        uploadDocuments: boolean;
+        downloadDocuments: boolean;
+        deleteDocuments: boolean;
     };
 }>();
 
@@ -227,5 +253,18 @@ const toggleStatus = () => {
                 </p>
             </CardContent>
         </Card>
+
+        <DocumentsPanel
+            documentable-type="vendor"
+            :documentable-id="vendor.id"
+            :documents="vendor.documents"
+            :can="{
+                upload: can.uploadDocuments,
+                download: can.downloadDocuments,
+                delete: can.deleteDocuments,
+            }"
+        />
+
+        <ActivityHistoryPanel :logs="activityLogs" />
     </div>
 </template>
