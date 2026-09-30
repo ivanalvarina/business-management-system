@@ -6,13 +6,16 @@ use App\Http\Requests\StoreCompanyRequest;
 use App\Http\Requests\UpdateCompanyRequest;
 use App\Models\AuditLog;
 use App\Models\Company;
+use App\Models\QuotationTemplate;
 use App\Models\User;
 use App\Support\AuditLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -95,6 +98,8 @@ class CompanyController extends Controller
         }
 
         $company = Company::create($this->companyAttributes($validated));
+        $this->storeQuotationTemplate($company, $validated, $request);
+
         $userIds = $validated['user_ids'] ?? [];
 
         if (! $request->user()->hasGlobalCompanyAccess()) {
@@ -116,7 +121,7 @@ class CompanyController extends Controller
     {
         Gate::authorize('view', $company);
 
-        $company->load(['users:id,name,email', 'documents.uploader:id,name']);
+        $company->load(['users:id,name,email', 'documents.uploader:id,name', 'activeQuotationTemplate']);
 
         return Inertia::render('companies/Show', [
             'company' => $this->companyPayload($company),
@@ -139,7 +144,7 @@ class CompanyController extends Controller
     {
         Gate::authorize('update', $company);
 
-        $company->load('users:id');
+        $company->load(['users:id', 'activeQuotationTemplate']);
 
         return Inertia::render('companies/Edit', [
             'company' => [
@@ -175,6 +180,8 @@ class CompanyController extends Controller
         }
 
         $company->update($attributes);
+        $this->storeQuotationTemplate($company, $validated, $request);
+
         $userIds = $validated['user_ids'] ?? [];
 
         if (! $request->user()->hasGlobalCompanyAccess()) {
@@ -204,6 +211,12 @@ class CompanyController extends Controller
         if ($company->logo !== null) {
             Storage::disk('public')->delete($company->logo);
         }
+
+        $company->quotationTemplates->each(function (QuotationTemplate $template): void {
+            if ($this->quotationTemplatePathIsSafe($template->stored_path)) {
+                Storage::disk('public')->delete($template->stored_path);
+            }
+        });
 
         if ((int) $request->session()->get('current_company_id') === $company->id) {
             $request->session()->forget('current_company_id');
@@ -273,6 +286,10 @@ class CompanyController extends Controller
      */
     private function companyPayload(Company $company): array
     {
+        $quotationTemplate = $company->relationLoaded('activeQuotationTemplate')
+            ? $company->activeQuotationTemplate
+            : null;
+
         return [
             'id' => $company->id,
             'company_code' => $company->company_code,
@@ -286,6 +303,7 @@ class CompanyController extends Controller
             'logo_url' => $company->logo === null ? null : Storage::disk('public')->url($company->logo),
             'purchasing_assistant_name' => $company->purchasing_assistant_name,
             'corporate_sales_manager_name' => $company->corporate_sales_manager_name,
+            'quotation_template' => $quotationTemplate ? $this->quotationTemplatePayload($quotationTemplate) : null,
             'status' => $company->status,
             'created_at' => $company->created_at?->toDateString(),
             'users' => $company->relationLoaded('users')
@@ -336,5 +354,115 @@ class CompanyController extends Controller
     private function auditedAttributes(): array
     {
         return ['company_code', 'company_name', 'trade_name', 'tin', 'email', 'phone', 'address', 'logo', 'purchasing_assistant_name', 'corporate_sales_manager_name', 'status'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function storeQuotationTemplate(Company $company, array $validated, Request $request): void
+    {
+        $file = $request->file('quotation_template_file');
+        $activeTemplate = $company->activeQuotationTemplate()->first();
+        $templateName = trim((string) ($validated['quotation_template_name'] ?? ''));
+        $templateConfig = $this->decodeQuotationTemplateConfig($validated['quotation_template_config'] ?? null);
+
+        if (! $file instanceof UploadedFile && $activeTemplate === null) {
+            return;
+        }
+
+        $name = $templateName !== ''
+            ? $templateName
+            : ($activeTemplate?->name ?? __('Quotation template'));
+
+        $storedPath = $activeTemplate?->stored_path;
+        $originalFilename = $activeTemplate?->original_filename;
+        $mimeType = $activeTemplate?->mime_type;
+        $fileSize = $activeTemplate?->file_size;
+        $fileType = $activeTemplate?->file_type ?? 'pdf';
+
+        if ($file instanceof UploadedFile) {
+            $storedPath = $file->store('quotation-templates', 'public');
+            $originalFilename = $this->safeOriginalFilename($file->getClientOriginalName());
+            $mimeType = $file->getMimeType() ?: 'application/pdf';
+            $fileSize = $file->getSize();
+            $fileType = strtolower($file->getClientOriginalExtension() ?: 'pdf');
+        } elseif (
+            $activeTemplate !== null
+            && $activeTemplate->name === $name
+            && $activeTemplate->config === $templateConfig
+        ) {
+            return;
+        }
+
+        if ($storedPath === null || $originalFilename === null || $mimeType === null || $fileSize === null) {
+            return;
+        }
+
+        $company->quotationTemplates()->update(['is_active' => false]);
+
+        $company->quotationTemplates()->create([
+            'name' => $name,
+            'original_filename' => $originalFilename,
+            'stored_path' => $storedPath,
+            'mime_type' => $mimeType,
+            'file_size' => $fileSize,
+            'file_type' => $fileType,
+            'config' => $templateConfig,
+            'is_active' => true,
+            'uploaded_by' => $request->user()?->id,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeQuotationTemplateConfig(mixed $config): ?array
+    {
+        $json = trim((string) $config);
+
+        if ($json === '') {
+            return null;
+        }
+
+        $decoded = json_decode($json, true);
+
+        if (! is_array($decoded)) {
+            throw ValidationException::withMessages([
+                'quotation_template_config' => __('The quotation template config must be a JSON object.'),
+            ]);
+        }
+
+        return $decoded;
+    }
+
+    private function safeOriginalFilename(string $filename): string
+    {
+        $basename = pathinfo($filename, PATHINFO_BASENAME);
+        $clean = trim((string) preg_replace('/[^\w.\- ()]/', '_', $basename));
+
+        return mb_substr($clean === '' ? 'quotation-template.pdf' : $clean, 0, 255);
+    }
+
+    private function quotationTemplatePathIsSafe(string $path): bool
+    {
+        return ! str_contains($path, '..') && str_starts_with($path, 'quotation-templates/');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function quotationTemplatePayload(QuotationTemplate $template): array
+    {
+        return [
+            'id' => $template->id,
+            'name' => $template->name,
+            'original_filename' => $template->original_filename,
+            'file_url' => $template->file_url,
+            'file_type' => $template->file_type,
+            'config' => $template->config,
+            'config_json' => $template->config === null
+                ? ''
+                : json_encode($template->config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+        ];
     }
 }

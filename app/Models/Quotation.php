@@ -22,6 +22,8 @@ use Illuminate\Support\Carbon;
  * @property string $status
  * @property string|null $notes
  * @property string|null $terms_conditions
+ * @property int|null $quotation_template_id
+ * @property array<string, mixed>|null $quotation_template_snapshot
  * @property string $subtotal
  * @property string $discount
  * @property string $tax_amount
@@ -30,7 +32,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['quotation_no', 'company_id', 'client_id', 'quotation_date', 'valid_until', 'currency', 'status', 'notes', 'terms_conditions', 'subtotal', 'discount', 'tax_amount', 'total_amount', 'created_by'])]
+#[Fillable(['quotation_no', 'company_id', 'client_id', 'quotation_date', 'valid_until', 'currency', 'status', 'notes', 'terms_conditions', 'quotation_template_id', 'quotation_template_snapshot', 'subtotal', 'discount', 'tax_amount', 'total_amount', 'created_by'])]
 class Quotation extends Model
 {
     public const STATUS_DRAFT = 'draft';
@@ -74,6 +76,14 @@ class Quotation extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * @return BelongsTo<QuotationTemplate, $this>
+     */
+    public function quotationTemplate(): BelongsTo
+    {
+        return $this->belongsTo(QuotationTemplate::class);
     }
 
     /**
@@ -141,6 +151,7 @@ class Quotation extends Model
         return [
             'quotation_date' => 'date',
             'valid_until' => 'date',
+            'quotation_template_snapshot' => 'array',
             'subtotal' => 'decimal:2',
             'discount' => 'decimal:2',
             'tax_amount' => 'decimal:2',

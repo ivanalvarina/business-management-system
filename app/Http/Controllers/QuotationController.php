@@ -13,13 +13,17 @@ use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\User;
 use App\Support\AuditLogger;
+use App\Support\QuotationPdfRenderer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
 
 class QuotationController extends Controller
 {
@@ -67,7 +71,7 @@ class QuotationController extends Controller
                 ->latest('id')
                 ->paginate(10)
                 ->withQueryString()
-                ->through(fn (Quotation $quotation): array => $this->quotationSummaryPayload($quotation)),
+                ->through(fn (Quotation $quotation): array => $this->quotationSummaryPayload($quotation, $user)),
             'statuses' => Quotation::statuses(),
             'can' => [
                 'create' => $request->user()->can('create', Quotation::class),
@@ -95,11 +99,18 @@ class QuotationController extends Controller
 
         $quotation = DB::transaction(function () use ($request, $validated): Quotation {
             $totals = $this->calculateTotals($validated['items']);
+            $company = Company::query()
+                ->with('activeQuotationTemplate')
+                ->whereKey($validated['company_id'])
+                ->firstOrFail();
+            $template = $company->activeQuotationTemplate()->first();
 
             $quotation = Quotation::create([
                 ...$this->quotationAttributes($validated),
                 ...$totals,
                 'quotation_no' => DocumentSequence::nextQuotationNumber($validated['quotation_date']),
+                'quotation_template_id' => $template?->id,
+                'quotation_template_snapshot' => $template?->snapshot(),
                 'status' => Quotation::STATUS_DRAFT,
                 'created_by' => $request->user()->id,
             ]);
@@ -164,12 +175,26 @@ class QuotationController extends Controller
         $oldValues = $quotation->only($this->auditedAttributes());
 
         DB::transaction(function () use ($quotation, $validated): void {
-            $quotation->update([
+            $attributes = [
                 ...$this->quotationAttributes($validated),
                 ...$this->calculateTotals($validated['items']),
                 'status' => $quotation->status === Quotation::STATUS_REJECTED
                     ? Quotation::STATUS_DRAFT
                     : $quotation->status,
+            ];
+
+            if ((int) $quotation->company_id !== (int) $validated['company_id'] || $quotation->quotation_template_snapshot === null) {
+                $company = Company::query()
+                    ->with('activeQuotationTemplate')
+                    ->whereKey($validated['company_id'])
+                    ->firstOrFail();
+                $template = $company->activeQuotationTemplate()->first();
+                $attributes['quotation_template_id'] = $template?->id;
+                $attributes['quotation_template_snapshot'] = $template?->snapshot();
+            }
+
+            $quotation->update([
+                ...$attributes,
             ]);
 
             $this->syncItems($quotation, $validated['items']);
@@ -226,7 +251,7 @@ class QuotationController extends Controller
         return $this->transition($request, $audit, $quotation, Quotation::STATUS_CANCELLED, 'cancelled', __('Quotation cancelled.'));
     }
 
-    public function print(Quotation $quotation): Response
+    public function print(Request $request, Quotation $quotation, QuotationPdfRenderer $renderer): HttpResponse
     {
         Gate::authorize('print', $quotation);
 
@@ -237,8 +262,23 @@ class QuotationController extends Controller
             'creator:id,name',
         ]);
 
-        return Inertia::render('quotations/Print', [
-            'quotation' => $this->quotationPayload($quotation),
+        // try {
+        //     $pdf = $renderer->render($quotation);
+        // } catch (RuntimeException $exception) {
+        //     abort(422, $exception->getMessage());
+        // }
+        try {
+            $pdf = $renderer
+                ->debug(app()->isLocal() && $request->boolean('debug'))
+                ->render($quotation);
+        } catch (RuntimeException $exception) {
+            abort(422, $exception->getMessage());
+        }
+        $filename = preg_replace('/[^\w\-]+/', '-', $quotation->quotation_no).'.pdf';
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
         ]);
     }
 
@@ -425,9 +465,9 @@ class QuotationController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function quotationSummaryPayload(Quotation $quotation): array
+    private function quotationSummaryPayload(Quotation $quotation, ?User $user = null): array
     {
-        return [
+        $payload = [
             'id' => $quotation->id,
             'quotation_no' => $quotation->quotation_no,
             'quotation_date' => $quotation->quotation_date->toDateString(),
@@ -446,6 +486,14 @@ class QuotationController extends Controller
                 'client_name' => $quotation->client?->client_name,
             ],
         ];
+
+        if ($user instanceof User) {
+            $payload['can'] = [
+                'print' => $user->can('print', $quotation),
+            ];
+        }
+
+        return $payload;
     }
 
     /**
@@ -457,6 +505,7 @@ class QuotationController extends Controller
             ...$this->quotationSummaryPayload($quotation),
             'notes' => $quotation->notes,
             'terms_conditions' => $quotation->terms_conditions,
+            'quotation_template' => $this->quotationTemplatePayload($quotation),
             'subtotal' => $quotation->subtotal,
             'discount' => $quotation->discount,
             'tax_amount' => $quotation->tax_amount,
@@ -569,6 +618,36 @@ class QuotationController extends Controller
      */
     private function auditedAttributes(): array
     {
-        return ['quotation_no', 'company_id', 'client_id', 'quotation_date', 'valid_until', 'currency', 'status', 'subtotal', 'discount', 'tax_amount', 'total_amount'];
+        return ['quotation_no', 'company_id', 'client_id', 'quotation_date', 'valid_until', 'currency', 'status', 'quotation_template_id', 'quotation_template_snapshot', 'subtotal', 'discount', 'tax_amount', 'total_amount'];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function quotationTemplatePayload(Quotation $quotation): ?array
+    {
+        $snapshot = $quotation->quotation_template_snapshot;
+
+        if (! is_array($snapshot)) {
+            return null;
+        }
+
+        $storedPath = (string) ($snapshot['stored_path'] ?? '');
+
+        return [
+            'id' => $snapshot['id'] ?? null,
+            'name' => $snapshot['name'] ?? null,
+            'original_filename' => $snapshot['original_filename'] ?? null,
+            'file_type' => $snapshot['file_type'] ?? null,
+            'file_url' => $this->quotationTemplatePathIsSafe($storedPath)
+                ? Storage::disk('public')->url($storedPath)
+                : null,
+            'config' => $snapshot['config'] ?? null,
+        ];
+    }
+
+    private function quotationTemplatePathIsSafe(string $path): bool
+    {
+        return ! str_contains($path, '..') && str_starts_with($path, 'quotation-templates/');
     }
 }

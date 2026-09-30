@@ -40,6 +40,9 @@ const form = useForm({
     phone: '',
     address: '',
     logo: null as File | null,
+    quotation_template_file: null as File | null,
+    quotation_template_name: '',
+    quotation_template_config: '',
     purchasing_assistant_name: '',
     corporate_sales_manager_name: '',
     status: 'active',
@@ -55,6 +58,11 @@ const toggleUser = (userId: number, checked: boolean) => {
 const selectLogo = (event: Event) => {
     const input = event.target as HTMLInputElement;
     form.logo = input.files?.[0] ?? null;
+};
+
+const selectQuotationTemplate = (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    form.quotation_template_file = input.files?.[0] ?? null;
 };
 
 const submit = () => {
@@ -135,6 +143,47 @@ const submit = () => {
                                 @change="selectLogo"
                             />
                             <InputError :message="form.errors.logo" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="quotation_template_name">
+                                Quotation template name
+                            </Label>
+                            <Input
+                                id="quotation_template_name"
+                                v-model="form.quotation_template_name"
+                                placeholder="Sales quotation template"
+                            />
+                            <InputError
+                                :message="form.errors.quotation_template_name"
+                            />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="quotation_template_file">
+                                Quotation PDF template
+                            </Label>
+                            <Input
+                                id="quotation_template_file"
+                                type="file"
+                                accept="application/pdf"
+                                @change="selectQuotationTemplate"
+                            />
+                            <InputError
+                                :message="form.errors.quotation_template_file"
+                            />
+                        </div>
+                        <div class="grid gap-2 md:col-span-2">
+                            <Label for="quotation_template_config">
+                                Quotation template field mapping
+                            </Label>
+                            <textarea
+                                id="quotation_template_config"
+                                v-model="form.quotation_template_config"
+                                class="min-h-40 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                                placeholder='{"fields":{"quotation_no":{"page":1,"x":540,"y":120}}}'
+                            />
+                            <InputError
+                                :message="form.errors.quotation_template_config"
+                            />
                         </div>
                         <div class="grid gap-2">
                             <Label for="purchasing_assistant_name">

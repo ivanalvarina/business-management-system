@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 
@@ -85,5 +87,23 @@ class Company extends Model
     public function isActive(): bool
     {
         return $this->status === self::STATUS_ACTIVE;
+    }
+
+    /**
+     * @return HasMany<QuotationTemplate, $this>
+     */
+    public function quotationTemplates(): HasMany
+    {
+        return $this->hasMany(QuotationTemplate::class)->latest();
+    }
+
+    /**
+     * @return HasOne<QuotationTemplate, $this>
+     */
+    public function activeQuotationTemplate(): HasOne
+    {
+        return $this->hasOne(QuotationTemplate::class)
+            ->where('is_active', true)
+            ->latestOfMany();
     }
 }

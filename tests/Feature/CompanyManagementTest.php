@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Company;
+use App\Models\QuotationTemplate;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -28,6 +29,9 @@ test('authorized users can create companies and assign user access', function ()
             'address' => 'Main Office',
             'purchasing_assistant_name' => 'Harold Asuncion',
             'corporate_sales_manager_name' => 'Rose Paguia',
+            'quotation_template_name' => '40FIED PDF Template',
+            'quotation_template_file' => UploadedFile::fake()->create('template.pdf', 128, 'application/pdf'),
+            'quotation_template_config' => '{"fields":{"quotation_no":{"page":1,"x":540,"y":120}}}',
             'status' => Company::STATUS_ACTIVE,
             'logo' => UploadedFile::fake()->image('logo.png'),
             'user_ids' => [$assignedUser->id],
@@ -39,10 +43,14 @@ test('authorized users can create companies and assign user access', function ()
     expect($company->company_name)->toBe('Acme Corporation')
         ->and($company->purchasing_assistant_name)->toBe('Harold Asuncion')
         ->and($company->corporate_sales_manager_name)->toBe('Rose Paguia')
+        ->and($company->activeQuotationTemplate)->toBeInstanceOf(QuotationTemplate::class)
+        ->and($company->activeQuotationTemplate->name)->toBe('40FIED PDF Template')
+        ->and($company->activeQuotationTemplate->config['fields']['quotation_no']['x'])->toBe(540)
         ->and($company->users()->whereKey($assignedUser->id)->exists())->toBeTrue()
         ->and($company->logo)->not->toBeNull();
 
     Storage::disk('public')->assertExists($company->logo);
+    Storage::disk('public')->assertExists($company->activeQuotationTemplate->stored_path);
 });
 
 test('company code must be unique', function () {
@@ -81,6 +89,8 @@ test('scoped users only see assigned companies', function () {
 });
 
 test('authorized users can update deactivate and delete companies', function () {
+    Storage::fake('public');
+
     $admin = userWithPermissions([
         'companies.view',
         'companies.edit',
@@ -98,6 +108,9 @@ test('authorized users can update deactivate and delete companies', function () 
             'company_name' => 'New Company',
             'purchasing_assistant_name' => 'Updated Buyer',
             'corporate_sales_manager_name' => 'Updated Manager',
+            'quotation_template_name' => 'LEEPE PDF Template',
+            'quotation_template_file' => UploadedFile::fake()->create('leepe-template.pdf', 128, 'application/pdf'),
+            'quotation_template_config' => '{"fields":{"customer_name":{"page":1,"x":120,"y":250}}}',
             'status' => Company::STATUS_ACTIVE,
             'user_ids' => [],
         ])
@@ -105,7 +118,8 @@ test('authorized users can update deactivate and delete companies', function () 
 
     expect($company->fresh()->company_code)->toBe('NEW')
         ->and($company->fresh()->purchasing_assistant_name)->toBe('Updated Buyer')
-        ->and($company->fresh()->corporate_sales_manager_name)->toBe('Updated Manager');
+        ->and($company->fresh()->corporate_sales_manager_name)->toBe('Updated Manager')
+        ->and($company->fresh()->activeQuotationTemplate->name)->toBe('LEEPE PDF Template');
 
     $this->actingAs($admin)
         ->patch(route('companies.deactivate', $company))

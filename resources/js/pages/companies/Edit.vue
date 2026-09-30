@@ -18,6 +18,15 @@ type UserOption = {
     email: string;
 };
 
+type QuotationTemplate = {
+    id: number;
+    name: string;
+    original_filename: string;
+    file_url: string;
+    file_type: string;
+    config_json: string;
+};
+
 type Company = {
     id: number;
     company_code: string;
@@ -30,6 +39,7 @@ type Company = {
     logo_url: string | null;
     purchasing_assistant_name: string | null;
     corporate_sales_manager_name: string | null;
+    quotation_template: QuotationTemplate | null;
     status: 'active' | 'inactive';
     user_ids: number[];
 };
@@ -58,6 +68,10 @@ const form = useForm({
     address: props.company.address ?? '',
     logo: null as File | null,
     remove_logo: false,
+    quotation_template_file: null as File | null,
+    quotation_template_name: props.company.quotation_template?.name ?? '',
+    quotation_template_config:
+        props.company.quotation_template?.config_json ?? '',
     purchasing_assistant_name: props.company.purchasing_assistant_name ?? '',
     corporate_sales_manager_name:
         props.company.corporate_sales_manager_name ?? '',
@@ -74,6 +88,11 @@ const toggleUser = (userId: number, checked: boolean) => {
 const selectLogo = (event: Event) => {
     const input = event.target as HTMLInputElement;
     form.logo = input.files?.[0] ?? null;
+};
+
+const selectQuotationTemplate = (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    form.quotation_template_file = input.files?.[0] ?? null;
 };
 
 const submit = () => {
@@ -188,6 +207,54 @@ const submit = () => {
                                 Remove current logo
                             </label>
                             <InputError :message="form.errors.logo" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="quotation_template_name">
+                                Quotation template name
+                            </Label>
+                            <Input
+                                id="quotation_template_name"
+                                v-model="form.quotation_template_name"
+                            />
+                            <p
+                                v-if="company.quotation_template"
+                                class="text-xs text-muted-foreground"
+                            >
+                                Current file:
+                                {{
+                                    company.quotation_template.original_filename
+                                }}
+                            </p>
+                            <InputError
+                                :message="form.errors.quotation_template_name"
+                            />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="quotation_template_file">
+                                Replace quotation PDF template
+                            </Label>
+                            <Input
+                                id="quotation_template_file"
+                                type="file"
+                                accept="application/pdf"
+                                @change="selectQuotationTemplate"
+                            />
+                            <InputError
+                                :message="form.errors.quotation_template_file"
+                            />
+                        </div>
+                        <div class="grid gap-2 md:col-span-2">
+                            <Label for="quotation_template_config">
+                                Quotation template field mapping
+                            </Label>
+                            <textarea
+                                id="quotation_template_config"
+                                v-model="form.quotation_template_config"
+                                class="min-h-40 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                            />
+                            <InputError
+                                :message="form.errors.quotation_template_config"
+                            />
                         </div>
                         <div class="grid gap-2">
                             <Label for="purchasing_assistant_name">

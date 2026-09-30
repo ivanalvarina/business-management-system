@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import { Head, usePoll } from '@inertiajs/vue3';
 import { Activity, LayoutDashboard } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -42,7 +42,7 @@ type Charts = {
         labels: string[];
         client: number[];
         vendor: number[];
-    };
+    } | null;
 };
 
 const props = defineProps<{
@@ -51,72 +51,16 @@ const props = defineProps<{
     charts?: Charts;
 }>();
 
-/* =====================================================================
- * SAMPLE DATA (hardcoded muna)
- * Kapag handa na ang backend: i-set ang USE_SAMPLE_DATA sa false
- * (o burahin ang buong block na ito) at ipasa ang `charts` prop
- * at ang `trend` / `delta` sa bawat metric mula sa controller.
- * ===================================================================== */
-const USE_SAMPLE_DATA = true;
-
-const sampleCharts: Charts = {
-    quotationValueByMonth: [
-        { label: 'Apr', value: 18200 },
-        { label: 'May', value: 24600 },
-        { label: 'Jun', value: 21000 },
-        { label: 'Jul', value: 32800 },
-        { label: 'Aug', value: 26100 },
-        { label: 'Sep', value: 29450 },
-    ],
-    purchaseRequestsByStatus: [
-        { label: 'Approved', value: 5 },
-        { label: 'Pending approval', value: 2 },
-        { label: 'Draft', value: 1 },
-        { label: 'Rejected', value: 1 },
-    ],
-    documentsThisMonth: [
-        { label: 'Quotations', value: 3 },
-        { label: 'Vendor POs', value: 3 },
-        { label: 'Purchase requests', value: 2 },
-        { label: 'Client POs', value: 1 },
-        { label: 'Receiving receipts', value: 1 },
-    ],
-    weeklyPurchaseOrders: {
-        labels: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'],
-        client: [1, 2, 1, 3, 2, 2, 1, 1],
-        vendor: [2, 1, 3, 2, 4, 3, 2, 3],
+usePoll(
+    30000,
+    {
+        only: ['metrics', 'charts', 'recentActivity'],
     },
-};
-
-const sampleMetricExtras: Record<string, { trend: number[]; delta: string }> = {
-    'Quotation value': {
-        trend: [18, 25, 21, 33, 26, 29],
-        delta: '+12% vs last month',
-    },
-    'Quotations this month': {
-        trend: [2, 4, 3, 5, 2, 3],
-        delta: '+1 vs last month',
-    },
-    'Client POs received': {
-        trend: [1, 2, 1, 2, 1, 1],
-        delta: 'Same as last month',
-    },
-    'Vendor POs this month': {
-        trend: [1, 2, 1, 3, 1, 3],
-        delta: '+2 vs last month',
-    },
-};
-
-const chartData = computed<Charts>(
-    () => props.charts ?? (USE_SAMPLE_DATA ? sampleCharts : {}),
 );
 
-const metricsView = computed<Metric[]>(() =>
-    props.metrics.map((m) => ({
-        ...m,
-        ...(USE_SAMPLE_DATA && !m.trend ? sampleMetricExtras[m.label] : {}),
-    })),
-);
+const chartData = computed<Charts>(() => props.charts ?? {});
+
+const metricsView = computed<Metric[]>(() => props.metrics);
 
 defineOptions({
     layout: {
@@ -450,7 +394,7 @@ const dot = (action: string) => {
             <Card v-if="donut.segments.length">
                 <CardHeader>
                     <CardTitle>Purchase requests by status</CardTitle>
-                    <CardDescription>All accessible companies</CardDescription>
+                    <CardDescription>Current company</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-wrap items-center gap-5">
                     <svg viewBox="0 0 140 140" class="w-40">

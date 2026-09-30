@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Eye, Plus, Search } from '@lucide/vue';
-import { ref } from 'vue';
+import {
+    ChevronLeft,
+    ChevronRight,
+    Eye,
+    Pencil,
+    Plus,
+    Search,
+} from '@lucide/vue';
+import { computed, ref, watch } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
-import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { create, edit, index, show } from '@/routes/client-pos';
 import Money from '@/components/Money.vue';
+import { create, edit, index, show } from '@/routes/client-pos';
 
 type CompanyOption = {
     id: number;
@@ -74,19 +79,19 @@ const statusLabel = (value: string) =>
         .replaceAll('_', ' ')
         .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-const statusTone = (value: string) => {
+const statusDot = (value: string) => {
     if (value === 'confirmed') {
-        return 'success';
+        return 'bg-emerald-500';
     }
 
     if (value === 'in_review') {
-        return 'info';
+        return 'bg-blue-500';
     }
 
-    return value === 'cancelled' ? 'warning' : 'neutral';
+    return value === 'cancelled' ? 'bg-amber-500' : 'bg-muted-foreground/40';
 };
 
-const submitSearch = () => {
+const applyFilters = () => {
     router.get(
         index.url(),
         {
@@ -95,9 +100,32 @@ const submitSearch = () => {
             company_id: companyId.value === 'all' ? undefined : companyId.value,
             client_id: clientId.value === 'all' ? undefined : clientId.value,
         },
-        { preserveState: true, replace: true },
+        { preserveState: true, preserveScroll: true, replace: true },
     );
 };
+
+let timer: ReturnType<typeof setTimeout>;
+
+watch(search, () => {
+    clearTimeout(timer);
+    timer = setTimeout(applyFilters, 300);
+});
+
+const prevLink = computed(() => props.clientPurchaseOrders.links[0]);
+const nextLink = computed(
+    () =>
+        props.clientPurchaseOrders.links[
+            props.clientPurchaseOrders.links.length - 1
+        ],
+);
+const currentPage = computed(
+    () =>
+        props.clientPurchaseOrders.links.find((link) => link.active)?.label ??
+        '1',
+);
+const showPagination = computed(
+    () => props.clientPurchaseOrders.links.length > 3,
+);
 </script>
 
 <template>
@@ -118,204 +146,263 @@ const submitSearch = () => {
             </template>
         </PageHeader>
 
-        <Card>
-            <CardContent class="space-y-4">
-                <form
-                    class="grid gap-2 xl:grid-cols-[1fr_220px_220px_180px_auto]"
-                    @submit.prevent="submitSearch"
-                >
+        <div class="space-y-3">
+            <div class="flex flex-col gap-2 lg:flex-row">
+                <div class="relative w-full lg:max-w-xs">
+                    <Search
+                        class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                    />
                     <Input
                         v-model="search"
                         placeholder="Search PO, client, or quotation"
+                        class="pl-9"
                     />
-                    <select
-                        v-model="companyId"
-                        class="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                        <option value="all">All companies</option>
-                        <option
-                            v-for="company in companies"
-                            :key="company.id"
-                            :value="company.id"
-                        >
-                            {{ company.company_name }}
-                        </option>
-                    </select>
-                    <select
-                        v-model="clientId"
-                        class="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                        <option value="all">All clients</option>
-                        <option
-                            v-for="client in clients"
-                            :key="client.id"
-                            :value="client.id"
-                        >
-                            {{ client.client_name }}
-                        </option>
-                    </select>
-                    <select
-                        v-model="status"
-                        class="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                        <option value="all">All statuses</option>
-                        <option
-                            v-for="statusOption in statuses"
-                            :key="statusOption"
-                            :value="statusOption"
-                        >
-                            {{ statusLabel(statusOption) }}
-                        </option>
-                    </select>
-                    <Button type="submit" variant="outline">
-                        <Search />
-                        Search
-                    </Button>
-                </form>
-
-                <div class="overflow-x-auto rounded-lg border">
-                    <table class="w-full min-w-[980px] text-sm">
-                        <thead
-                            class="bg-muted/50 text-left text-muted-foreground"
-                        >
-                            <tr>
-                                <th class="px-4 py-3 font-medium">Client PO</th>
-                                <th class="px-4 py-3 font-medium">Client</th>
-                                <th class="px-4 py-3 font-medium">Company</th>
-                                <th class="px-4 py-3 font-medium">
-                                    Linked quote
-                                </th>
-                                <th class="px-4 py-3 font-medium">Status</th>
-                                <th class="px-4 py-3 text-right font-medium">
-                                    Amount
-                                </th>
-                                <th class="px-4 py-3 text-right font-medium">
-                                    Actions
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y">
-                            <tr
-                                v-for="clientPo in clientPurchaseOrders.data"
-                                :key="clientPo.id"
-                            >
-                                <td class="px-4 py-4">
-                                    <Link
-                                        :href="show(clientPo.id)"
-                                        class="font-medium hover:underline"
-                                    >
-                                        {{ clientPo.client_po_no }}
-                                    </Link>
-                                    <p class="text-muted-foreground">
-                                        {{ clientPo.po_date }}
-                                    </p>
-                                </td>
-                                <td class="px-4 py-4">
-                                    {{ clientPo.client.client_name }}
-                                    <p class="text-muted-foreground">
-                                        {{ clientPo.client.client_code }}
-                                    </p>
-                                </td>
-                                <td class="px-4 py-4">
-                                    {{ clientPo.company.company_name }}
-                                    <p class="text-muted-foreground">
-                                        {{ clientPo.company.company_code }}
-                                    </p>
-                                </td>
-                                <td class="px-4 py-4 text-muted-foreground">
-                                    {{
-                                        clientPo.quotations.length
-                                            ? clientPo.quotations
-                                                  .map(
-                                                      (quotation) =>
-                                                          quotation.quotation_no,
-                                                  )
-                                                  .join(', ')
-                                            : 'None'
-                                    }}
-                                </td>
-                                <td class="px-4 py-4">
-                                    <StatusBadge
-                                        :tone="statusTone(clientPo.status)"
-                                    >
-                                        {{ statusLabel(clientPo.status) }}
-                                    </StatusBadge>
-                                </td>
-                                <td class="px-4 py-4 text-right font-medium">
-                                    <Money
-                                        :amount="clientPo.amount"
-                                        :currency="clientPo.currency"
-                                    />
-                                </td>
-                                <td class="px-4 py-4">
-                                    <div class="flex justify-end gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            as-child
-                                        >
-                                            <Link :href="show(clientPo.id)">
-                                                <Eye />
-                                                View
-                                            </Link>
-                                        </Button>
-
-                                        <Button
-                                            v-if="
-                                                can.edit &&
-                                                clientPo.status !== 'fulfilled'
-                                            "
-                                            variant="outline"
-                                            size="sm"
-                                            as-child
-                                        >
-                                            <Link :href="edit(clientPo.id)"
-                                                >Edit</Link
-                                            >
-                                        </Button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr v-if="clientPurchaseOrders.data.length === 0">
-                                <td
-                                    colspan="7"
-                                    class="px-4 py-10 text-center text-muted-foreground"
-                                >
-                                    No client purchase orders found.
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
-
-                <div
-                    class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                <select
+                    v-model="companyId"
+                    class="h-9 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground lg:w-44"
+                    aria-label="Filter by company"
+                    @change="applyFilters"
                 >
-                    <p class="text-sm text-muted-foreground">
-                        Showing {{ clientPurchaseOrders.from ?? 0 }} to
-                        {{ clientPurchaseOrders.to ?? 0 }} of
-                        {{ clientPurchaseOrders.total }} client POs
-                    </p>
-                    <div class="flex flex-wrap gap-1">
-                        <template
-                            v-for="link in clientPurchaseOrders.links"
-                            :key="link.label"
+                    <option value="all">All companies</option>
+                    <option
+                        v-for="company in companies"
+                        :key="company.id"
+                        :value="company.id"
+                    >
+                        {{ company.company_name }}
+                    </option>
+                </select>
+                <select
+                    v-model="clientId"
+                    class="h-9 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground lg:w-44"
+                    aria-label="Filter by client"
+                    @change="applyFilters"
+                >
+                    <option value="all">All clients</option>
+                    <option
+                        v-for="client in clients"
+                        :key="client.id"
+                        :value="client.id"
+                    >
+                        {{ client.client_name }}
+                    </option>
+                </select>
+                <select
+                    v-model="status"
+                    class="h-9 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground lg:w-40"
+                    aria-label="Filter by status"
+                    @change="applyFilters"
+                >
+                    <option value="all">All statuses</option>
+                    <option
+                        v-for="statusOption in statuses"
+                        :key="statusOption"
+                        :value="statusOption"
+                    >
+                        {{ statusLabel(statusOption) }}
+                    </option>
+                </select>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border bg-card">
+                <table class="w-full min-w-[920px] text-sm">
+                    <thead class="text-left text-xs text-muted-foreground">
+                        <tr>
+                            <th class="px-5 py-3 font-normal">Client PO</th>
+                            <th class="px-5 py-3 font-normal">Client</th>
+                            <th class="px-5 py-3 font-normal">Company</th>
+                            <th class="px-5 py-3 font-normal">Linked quote</th>
+                            <th class="px-5 py-3 font-normal">Status</th>
+                            <th class="px-5 py-3 text-right font-normal">
+                                Amount
+                            </th>
+                            <th class="w-28 px-5 py-3">
+                                <span class="sr-only">Actions</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            v-for="clientPo in clientPurchaseOrders.data"
+                            :key="clientPo.id"
+                            class="border-t transition-colors hover:bg-muted/40"
                         >
-                            <Button
-                                v-if="link.url"
-                                :variant="link.active ? 'default' : 'outline'"
-                                size="sm"
-                                as-child
+                            <td class="px-5 py-3.5">
+                                <Link
+                                    :href="show(clientPo.id)"
+                                    class="font-medium hover:underline"
+                                >
+                                    {{ clientPo.client_po_no }}
+                                </Link>
+                                <p class="text-xs text-muted-foreground">
+                                    {{ clientPo.po_date }}
+                                </p>
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <p class="truncate">
+                                    {{ clientPo.client.client_name }}
+                                </p>
+                                <p
+                                    class="font-mono text-xs text-muted-foreground"
+                                >
+                                    {{ clientPo.client.client_code }}
+                                </p>
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <span
+                                    :title="clientPo.company.company_name"
+                                    class="rounded border px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+                                >
+                                    {{ clientPo.company.company_code }}
+                                </span>
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <p
+                                    v-if="clientPo.quotations.length"
+                                    class="font-mono text-xs text-muted-foreground"
+                                >
+                                    {{
+                                        clientPo.quotations
+                                            .map(
+                                                (quotation) =>
+                                                    quotation.quotation_no,
+                                            )
+                                            .join(', ')
+                                    }}
+                                </p>
+                                <span
+                                    v-else
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    None linked
+                                </span>
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <span
+                                    class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                                >
+                                    <span
+                                        class="size-1.5 rounded-full"
+                                        :class="statusDot(clientPo.status)"
+                                    />
+                                    {{ statusLabel(clientPo.status) }}
+                                </span>
+                            </td>
+                            <td
+                                class="px-5 py-3.5 text-right font-medium tabular-nums"
                             >
-                                <Link :href="link.url" v-html="link.label" />
-                            </Button>
-                            <Button v-else variant="outline" size="sm" disabled>
-                                <span v-html="link.label" />
-                            </Button>
-                        </template>
-                    </div>
+                                <Money
+                                    :amount="clientPo.amount"
+                                    :currency="clientPo.currency"
+                                />
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <div class="flex items-center justify-end">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-muted-foreground hover:text-foreground"
+                                        as-child
+                                    >
+                                        <Link
+                                            :href="show(clientPo.id)"
+                                            aria-label="View client PO"
+                                            title="View"
+                                        >
+                                            <Eye class="size-4" />
+                                        </Link>
+                                    </Button>
+                                    <Button
+                                        v-if="
+                                            can.edit &&
+                                            clientPo.status !== 'fulfilled'
+                                        "
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-muted-foreground hover:text-foreground"
+                                        as-child
+                                    >
+                                        <Link
+                                            :href="edit(clientPo.id)"
+                                            aria-label="Edit client PO"
+                                            title="Edit"
+                                        >
+                                            <Pencil class="size-4" />
+                                        </Link>
+                                    </Button>
+                                    <span v-else class="size-9" />
+                                </div>
+                            </td>
+                        </tr>
+                        <tr v-if="clientPurchaseOrders.data.length === 0">
+                            <td
+                                colspan="7"
+                                class="border-t px-5 py-12 text-center text-muted-foreground"
+                            >
+                                No client POs match your search.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex items-center justify-between px-1">
+                <p class="text-sm text-muted-foreground">
+                    {{ clientPurchaseOrders.total }}
+                    {{
+                        clientPurchaseOrders.total === 1
+                            ? 'client PO'
+                            : 'client POs'
+                    }}
+                </p>
+
+                <div v-if="showPagination" class="flex items-center gap-1">
+                    <Button
+                        v-if="prevLink?.url"
+                        variant="ghost"
+                        size="icon"
+                        as-child
+                    >
+                        <Link :href="prevLink.url" aria-label="Previous page">
+                            <ChevronLeft class="size-4" />
+                        </Link>
+                    </Button>
+                    <Button
+                        v-else
+                        variant="ghost"
+                        size="icon"
+                        disabled
+                        aria-label="Previous page"
+                    >
+                        <ChevronLeft class="size-4" />
+                    </Button>
+
+                    <span class="px-2 text-sm font-medium">
+                        {{ currentPage }}
+                    </span>
+
+                    <Button
+                        v-if="nextLink?.url"
+                        variant="ghost"
+                        size="icon"
+                        as-child
+                    >
+                        <Link :href="nextLink.url" aria-label="Next page">
+                            <ChevronRight class="size-4" />
+                        </Link>
+                    </Button>
+                    <Button
+                        v-else
+                        variant="ghost"
+                        size="icon"
+                        disabled
+                        aria-label="Next page"
+                    >
+                        <ChevronRight class="size-4" />
+                    </Button>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </div>
     </div>
 </template>

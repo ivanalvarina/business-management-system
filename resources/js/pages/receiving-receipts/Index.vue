@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Printer, Search } from '@lucide/vue';
+import {
+    ChevronLeft,
+    ChevronRight,
+    Eye,
+    Plus,
+    Printer,
+    Search,
+} from '@lucide/vue';
+import { computed, ref, watch } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
-import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -43,16 +50,53 @@ defineOptions({
     },
 });
 
-let search = props.filters.search ?? '';
-let status = props.filters.status ?? 'all';
+const search = ref(props.filters.search ?? '');
+const status = ref(props.filters.status ?? 'all');
 
-const submitFilters = () => {
+const statusLabel = (value: string) =>
+    value
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const statusDot = (value: string) => {
+    if (['completed', 'confirmed', 'posted', 'received'].includes(value)) {
+        return 'bg-emerald-500';
+    }
+
+    if (['partial', 'for_approval'].includes(value)) {
+        return 'bg-blue-500';
+    }
+
+    if (['cancelled', 'voided', 'rejected'].includes(value)) {
+        return 'bg-amber-500';
+    }
+
+    return 'bg-muted-foreground/40';
+};
+
+const applyFilters = () => {
     router.get(
         index.url(),
-        { search, status },
-        { preserveState: true, replace: true },
+        {
+            search: search.value || undefined,
+            status: status.value === 'all' ? undefined : status.value,
+        },
+        { preserveState: true, preserveScroll: true, replace: true },
     );
 };
+
+let timer: ReturnType<typeof setTimeout>;
+
+watch(search, () => {
+    clearTimeout(timer);
+    timer = setTimeout(applyFilters, 300);
+});
+
+const showPagination = computed(
+    () =>
+        props.receivingReceipts.prev_page_url !== null ||
+        props.receivingReceipts.next_page_url !== null,
+);
 </script>
 
 <template>
@@ -65,103 +109,137 @@ const submitFilters = () => {
         >
             <template #actions>
                 <Button v-if="can.create" as-child>
-                    <Link :href="create()">New receiving receipt</Link>
+                    <Link :href="create()">
+                        <Plus />
+                        New receiving receipt
+                    </Link>
                 </Button>
             </template>
         </PageHeader>
 
-        <div class="rounded-lg border bg-card p-4 shadow-sm">
-            <form
-                class="mb-4 flex flex-col gap-3 md:flex-row"
-                @submit.prevent="submitFilters"
-            >
-                <Input
-                    v-model="search"
-                    placeholder="Search RR, PO, vendor, invoice"
-                />
+        <div class="space-y-3">
+            <div class="flex flex-col gap-2 md:flex-row">
+                <div class="relative w-full md:max-w-xs">
+                    <Search
+                        class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                        v-model="search"
+                        placeholder="Search RR, PO, vendor, or invoice"
+                        class="pl-9"
+                    />
+                </div>
                 <select
                     v-model="status"
-                    class="h-9 rounded-md border border-input bg-background px-3 text-sm md:w-56"
+                    class="h-9 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground md:w-48"
+                    aria-label="Filter by status"
+                    @change="applyFilters"
                 >
                     <option value="all">All statuses</option>
                     <option v-for="item in statuses" :key="item" :value="item">
-                        {{ item.replaceAll('_', ' ') }}
+                        {{ statusLabel(item) }}
                     </option>
                 </select>
-                <Button type="submit" variant="outline">
-                    <Search />
-                    Search
-                </Button>
-            </form>
+            </div>
 
-            <div class="overflow-x-auto rounded-lg border">
-                <table class="w-full min-w-[900px] text-sm">
-                    <thead class="bg-muted/50 text-left text-muted-foreground">
+            <div class="overflow-x-auto rounded-xl border bg-card">
+                <table class="w-full min-w-[800px] text-sm">
+                    <thead class="text-left text-xs text-muted-foreground">
                         <tr>
-                            <th class="px-3 py-3 font-medium">RR</th>
-                            <th class="px-3 py-3 font-medium">PO</th>
-                            <th class="px-3 py-3 font-medium">Vendor</th>
-                            <th class="px-3 py-3 font-medium">Company</th>
-                            <th class="px-3 py-3 font-medium">Status</th>
-                            <th class="px-3 py-3 text-right font-medium">
-                                Actions
+                            <th class="px-5 py-3 font-normal">RR</th>
+                            <th class="px-5 py-3 font-normal">PO</th>
+                            <th class="px-5 py-3 font-normal">Vendor</th>
+                            <th class="px-5 py-3 font-normal">Company</th>
+                            <th class="px-5 py-3 font-normal">Status</th>
+                            <th class="w-28 px-5 py-3">
+                                <span class="sr-only">Actions</span>
                             </th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y">
+                    <tbody>
                         <tr
                             v-for="receipt in receivingReceipts.data"
                             :key="receipt.id"
+                            class="border-t transition-colors hover:bg-muted/40"
                         >
-                            <td class="px-3 py-3">
+                            <td class="px-5 py-3.5">
                                 <Link
                                     :href="show(receipt.id)"
                                     class="font-medium hover:underline"
                                 >
                                     {{ receipt.rr_no }}
                                 </Link>
-                                <p class="text-muted-foreground">
+                                <p class="text-xs text-muted-foreground">
                                     {{ receipt.received_date }}
                                 </p>
                             </td>
-                            <td class="px-3 py-3">
-                                {{ receipt.purchase_order.po_no }}
+                            <td class="px-5 py-3.5">
+                                <p>{{ receipt.purchase_order.po_no }}</p>
+                                <p
+                                    v-if="receipt.invoice_no"
+                                    class="font-mono text-xs text-muted-foreground"
+                                >
+                                    Inv. {{ receipt.invoice_no }}
+                                </p>
                             </td>
-                            <td class="px-3 py-3">
-                                {{ receipt.vendor.vendor_name }}
-                                <p class="text-muted-foreground">
+                            <td class="px-5 py-3.5">
+                                <p class="truncate">
+                                    {{ receipt.vendor.vendor_name }}
+                                </p>
+                                <p
+                                    class="font-mono text-xs text-muted-foreground"
+                                >
                                     {{ receipt.vendor.vendor_code }}
                                 </p>
                             </td>
-                            <td class="px-3 py-3">
-                                {{ receipt.company.company_name }}
-                                <p class="text-muted-foreground">
+                            <td class="px-5 py-3.5">
+                                <span
+                                    :title="receipt.company.company_name"
+                                    class="rounded border px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+                                >
                                     {{ receipt.company.company_code }}
-                                </p>
+                                </span>
                             </td>
-                            <td class="px-3 py-3">
-                                <StatusBadge>{{ receipt.status }}</StatusBadge>
+                            <td class="px-5 py-3.5">
+                                <span
+                                    class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                                >
+                                    <span
+                                        class="size-1.5 rounded-full"
+                                        :class="statusDot(receipt.status)"
+                                    />
+                                    {{ statusLabel(receipt.status) }}
+                                </span>
                             </td>
-                            <td class="px-3 py-3">
-                                <div class="flex justify-end gap-2">
+                            <td class="px-5 py-3.5">
+                                <div class="flex items-center justify-end">
                                     <Button
-                                        variant="outline"
-                                        size="sm"
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-muted-foreground hover:text-foreground"
                                         as-child
                                     >
-                                        <Link :href="show(receipt.id)"
-                                            >View</Link
+                                        <Link
+                                            :href="show(receipt.id)"
+                                            aria-label="View receiving receipt"
+                                            title="View"
                                         >
+                                            <Eye class="size-4" />
+                                        </Link>
                                     </Button>
                                     <Button
                                         v-if="can.print"
-                                        variant="outline"
-                                        size="sm"
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-muted-foreground hover:text-foreground"
                                         as-child
                                     >
-                                        <Link :href="printRoute(receipt.id)">
-                                            <Printer />
-                                            Print
+                                        <Link
+                                            :href="printRoute(receipt.id)"
+                                            aria-label="Print receiving receipt"
+                                            title="Print"
+                                        >
+                                            <Printer class="size-4" />
                                         </Link>
                                     </Button>
                                 </div>
@@ -170,45 +248,66 @@ const submitFilters = () => {
                         <tr v-if="receivingReceipts.data.length === 0">
                             <td
                                 colspan="6"
-                                class="px-3 py-10 text-center text-muted-foreground"
+                                class="border-t px-5 py-12 text-center text-muted-foreground"
                             >
-                                No receiving receipts found.
+                                No receiving receipts match your search.
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
-            <div
-                class="mt-4 flex items-center justify-between text-sm text-muted-foreground"
-            >
-                <span
-                    >Showing {{ receivingReceipts.from ?? 0 }} to
-                    {{ receivingReceipts.to ?? 0 }} of
-                    {{ receivingReceipts.total }} receipts</span
-                >
-                <div class="flex gap-2">
+            <div class="flex items-center justify-between px-1">
+                <p class="text-sm text-muted-foreground">
+                    {{ receivingReceipts.total }}
+                    {{ receivingReceipts.total === 1 ? 'receipt' : 'receipts' }}
+                </p>
+
+                <div v-if="showPagination" class="flex items-center gap-1">
                     <Button
-                        variant="outline"
-                        size="sm"
-                        :disabled="!receivingReceipts.prev_page_url"
-                        @click="
-                            receivingReceipts.prev_page_url &&
-                            router.visit(receivingReceipts.prev_page_url)
-                        "
+                        v-if="receivingReceipts.prev_page_url"
+                        variant="ghost"
+                        size="icon"
+                        as-child
                     >
-                        Previous
+                        <Link
+                            :href="receivingReceipts.prev_page_url"
+                            aria-label="Previous page"
+                        >
+                            <ChevronLeft class="size-4" />
+                        </Link>
                     </Button>
                     <Button
-                        variant="outline"
-                        size="sm"
-                        :disabled="!receivingReceipts.next_page_url"
-                        @click="
-                            receivingReceipts.next_page_url &&
-                            router.visit(receivingReceipts.next_page_url)
-                        "
+                        v-else
+                        variant="ghost"
+                        size="icon"
+                        disabled
+                        aria-label="Previous page"
                     >
-                        Next
+                        <ChevronLeft class="size-4" />
+                    </Button>
+
+                    <Button
+                        v-if="receivingReceipts.next_page_url"
+                        variant="ghost"
+                        size="icon"
+                        as-child
+                    >
+                        <Link
+                            :href="receivingReceipts.next_page_url"
+                            aria-label="Next page"
+                        >
+                            <ChevronRight class="size-4" />
+                        </Link>
+                    </Button>
+                    <Button
+                        v-else
+                        variant="ghost"
+                        size="icon"
+                        disabled
+                        aria-label="Next page"
+                    >
+                        <ChevronRight class="size-4" />
                     </Button>
                 </div>
             </div>

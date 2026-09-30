@@ -33,6 +33,8 @@ class QuotationFactory extends Factory
             'status' => Quotation::STATUS_DRAFT,
             'notes' => fake()->optional()->sentence(),
             'terms_conditions' => fake()->optional()->paragraph(),
+            'quotation_template_id' => null,
+            'quotation_template_snapshot' => null,
             'subtotal' => '1000.00',
             'discount' => '0.00',
             'tax_amount' => '120.00',

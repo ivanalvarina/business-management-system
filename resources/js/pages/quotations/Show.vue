@@ -162,10 +162,10 @@ const formatQuantity = (value: string | number | null | undefined) => {
                     <Link :href="index()"> Back </Link>
                 </Button>
                 <Button v-if="can.print" variant="outline" as-child>
-                    <Link :href="printRoute(quotation.id)">
+                    <a :href="printRoute.url(quotation.id)" target="_blank">
                         <Printer />
                         Print
-                    </Link>
+                    </a>
                 </Button>
                 <Button v-if="can.edit" variant="outline" as-child>
                     <Link :href="edit(quotation.id)">Edit</Link>

@@ -47,6 +47,13 @@ type Company = {
     logo_url: string | null;
     purchasing_assistant_name: string | null;
     corporate_sales_manager_name: string | null;
+    quotation_template: {
+        id: number;
+        name: string;
+        original_filename: string;
+        file_url: string;
+        file_type: string;
+    } | null;
     status: 'active' | 'inactive';
     created_at: string | null;
     users: AssignedUser[];
@@ -199,6 +206,22 @@ const deleteCompany = () => {
                                 'Not set'
                             }}
                         </p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">
+                            Quotation template
+                        </p>
+                        <p class="font-medium">
+                            {{ company.quotation_template?.name ?? 'Not set' }}
+                        </p>
+                        <a
+                            v-if="company.quotation_template"
+                            :href="company.quotation_template.file_url"
+                            target="_blank"
+                            class="text-sm text-primary underline-offset-4 hover:underline"
+                        >
+                            {{ company.quotation_template.original_filename }}
+                        </a>
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">Created</p>
