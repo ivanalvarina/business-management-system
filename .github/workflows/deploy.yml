@@ -1,16 +1,19 @@
-name: Deploy to Production
+name: CI
 
 on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Get latest code from master
+      # 1. Get latest code
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -19,7 +22,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, bcmath, pdo_mysql, fileinfo
+          extensions: mbstring, bcmath, pdo_mysql, fileinfo, gd
           coverage: none
 
       # 3. Install Composer dependencies
@@ -31,7 +34,7 @@ jobs:
             --optimize-autoloader \
             --no-interaction
 
-      # 4. Setup Node
+      # 4. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -47,31 +50,9 @@ jobs:
         run: npm run build
 
       # 7. Prepare Laravel directories
-      - name: Prepare Laravel
+      - name: Prepare Laravel directories
         run: |
           mkdir -p storage/framework/cache
           mkdir -p storage/framework/sessions
           mkdir -p storage/framework/views
           mkdir -p storage/logs
-
-      # 8. Deploy through FTP
-      - name: Deploy to hosting
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-
-          # Change this depending on your hosting
-          server-dir: /htdocs/
-
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            **/.env
-            **/tests/**
-            **/storage/logs/**
-            **/storage/framework/cache/**
-            **/storage/framework/sessions/**
-            **/storage/framework/views/**
