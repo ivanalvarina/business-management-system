@@ -19,7 +19,8 @@
         "setasign/fpdf": "^1.9",
         "setasign/fpdi": "^2.6",
         "setasign/tfpdf": "^1.33",
-        "spatie/laravel-permission": "8.0"
+        "spatie/laravel-permission": "8.0",
+        "ext-gd": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.24",
