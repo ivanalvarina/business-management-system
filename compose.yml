@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: leepe-app
+    ports:
+      - "9090:9090"
+      - "5173:5173"
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/var/www/html
+      - ./.env.docker:/var/www/html/.env:ro
+      - vendor_data:/var/www/html/vendor
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.4
+    container_name: leepe-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: leepe_db
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: leepe
+      MYSQL_PASSWORD: secret
+    ports:
+      - "3307:3306"
+    volumes:
+      - leepe_mysql_data:/var/lib/mysql
+
+volumes:
+  leepe_mysql_data:
+  vendor_data:
