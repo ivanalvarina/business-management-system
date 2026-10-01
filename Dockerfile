@@ -49,6 +49,7 @@ RUN mkdir -p \
     storage/framework/views \
     storage/logs \
     bootstrap/cache \
+    && php artisan storage:link --force \
     && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 8080
