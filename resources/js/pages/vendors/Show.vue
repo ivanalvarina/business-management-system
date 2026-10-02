@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
+import { ArrowLeft } from '@lucide/vue';
 import VendorController from '@/actions/App/Http/Controllers/VendorController';
 import ActivityHistoryPanel from '@/components/app/ActivityHistoryPanel.vue';
 import DocumentsPanel from '@/components/app/DocumentsPanel.vue';
@@ -108,6 +109,12 @@ const toggleStatus = () => {
             :description="vendor.vendor_code"
         >
             <template #actions>
+                <Button variant="outline" as-child>
+                    <Link :href="index()">
+                        <ArrowLeft />
+                        Back
+                    </Link>
+                </Button>
                 <Button v-if="can.edit" variant="outline" @click="toggleStatus">
                     {{ vendor.status === 'active' ? 'Deactivate' : 'Activate' }}
                 </Button>

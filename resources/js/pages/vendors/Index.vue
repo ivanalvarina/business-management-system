@@ -235,7 +235,7 @@ const showPagination = computed(() => props.vendors.links.length > 3);
                                     <div class="min-w-0">
                                         <Link
                                             :href="show(vendor.id)"
-                                            class="block truncate font-medium hover:underline"
+                                            class="block whitespace-normal break-words font-medium hover:underline"
                                         >
                                             {{ vendor.vendor_name }}
                                         </Link>
