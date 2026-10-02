@@ -12,3 +12,5 @@ tests
 *.md
 Dockerfile*
 compose.yml
+public/build
+public/hot
