@@ -220,7 +220,7 @@ class ClientController extends Controller
     private function clientAttributes(array $validated): array
     {
         return [
-            'client_code' => $validated['client_code'],
+            'client_code' => $validated['client_code'] ?? $this->generateClientCode(),
             'client_name' => $validated['client_name'],
             'trade_name' => $validated['trade_name'] ?? null,
             'tin' => $validated['tin'] ?? null,
@@ -359,5 +359,29 @@ class ClientController extends Controller
     private function auditedAttributes(): array
     {
         return ['client_code', 'client_name', 'trade_name', 'tin', 'email', 'phone', 'billing_address', 'shipping_address', 'status'];
+    }
+
+    /**
+     * Generate a unique client code.
+     * Format: CLT-{YYYYMM}{counter}
+     */
+    private function generateClientCode(): string
+    {
+        $yearMonth = now()->format('ym');
+        $counter = $this->getNextCounter($yearMonth);
+
+        return "CLT-{$yearMonth}{$counter}";
+    }
+
+    /**
+     * Get the next counter for the given year-month prefix.
+     */
+    private function getNextCounter(string $prefix): string
+    {
+        $baseCounter = (int) Client::query()
+            ->where('client_code', 'like', "CLT-{$prefix}%")
+            ->count() + 1;
+
+        return str_pad($baseCounter, 4, '0', STR_PAD_LEFT);
     }
 }

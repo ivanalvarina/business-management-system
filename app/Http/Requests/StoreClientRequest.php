@@ -27,7 +27,7 @@ class StoreClientRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_code' => ['required', 'string', 'max:50', 'unique:clients,client_code'],
+            'client_code' => ['nullable', 'string', 'max:50', 'unique:clients,client_code'],
             'client_name' => ['required', 'string', 'max:255'],
             'trade_name' => ['nullable', 'string', 'max:255'],
             'tin' => ['nullable', 'string', 'max:255'],

@@ -18,8 +18,13 @@ class ClientFactory extends Factory
      */
     public function definition(): array
     {
+        // Generate a unique client code in format: CLT-{YYYYMM}{counter}
+        $yearMonth = fake()->dateTimeBetween('-1 year')->format('ym');
+        $baseCounter = fake()->numberBetween(1, 9999);
+        $counter = str_pad($baseCounter, 4, '0', STR_PAD_LEFT);
+
         return [
-            'client_code' => fake()->unique()->bothify('CL-####'),
+            'client_code' => "CLT-{$yearMonth}{$counter}",
             'client_name' => fake()->company(),
             'trade_name' => fake()->optional()->companySuffix(),
             'tin' => fake()->optional()->numerify('###-###-###-###'),

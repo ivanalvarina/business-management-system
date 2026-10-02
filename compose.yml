@@ -1,35 +1,78 @@
 services:
+
   app:
     build:
       context: .
       dockerfile: Dockerfile.dev
+
     container_name: leepe-app
+
+    command: sh -c "composer install && php artisan serve --host=0.0.0.0 --port=9090"
+
     ports:
       - "9090:9090"
-      - "5173:5173"
+
     env_file:
       - .env.docker
+
     volumes:
       - .:/var/www/html
       - ./.env.docker:/var/www/html/.env:ro
       - vendor_data:/var/www/html/vendor
+
     depends_on:
       - mysql
 
+
+  vite:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+
+    container_name: leepe-vite
+
+    command: sh -c "(sleep 20; while true; do echo -n http://localhost:5173 > public/hot; sleep 2; done) & npm run dev -- --host 0.0.0.0 --cors"
+
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+
+    ports:
+      - "5173:5173"
+
+    env_file:
+      - .env.docker
+
+    volumes:
+      - .:/var/www/html
+      - ./.env.docker:/var/www/html/.env:ro
+      - vendor_data:/var/www/html/vendor
+      - node_modules_data:/var/www/html/node_modules
+
+    depends_on:
+      - app
+
+
   mysql:
     image: mysql:8.4
+
     container_name: leepe-mysql
+
     restart: unless-stopped
+
     environment:
       MYSQL_DATABASE: leepe_db
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: leepe
       MYSQL_PASSWORD: secret
+
     ports:
       - "3307:3306"
+
     volumes:
       - leepe_mysql_data:/var/lib/mysql
+
 
 volumes:
   leepe_mysql_data:
   vendor_data:
+  node_modules_data:
