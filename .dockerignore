@@ -3,6 +3,12 @@
 node_modules
 vendor
 .env
-.env*
+.env.*
 storage/logs/*
-public/storage
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+tests
+*.md
+Dockerfile*
+compose.yml

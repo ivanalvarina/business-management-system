@@ -1,57 +1,52 @@
-FROM php:8.3-cli
+# ---------- Stage 1: Build frontend ----------
+FROM php:8.3-cli AS assets
 
-WORKDIR /var/www/html
+WORKDIR /app
 
-# System + PHP dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    unzip \
-    curl \
-    libzip-dev \
-    libpng-dev \
-    libjpeg62-turbo-dev \
-    libfreetype6-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo_mysql zip gd \
+RUN apt-get update && apt-get install -y git unzip curl libzip-dev \
+    && docker-php-ext-install zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 24
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Copy application
-COPY . .
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction
 
-# Install PHP dependencies
-RUN composer install \
-    --no-dev \
-    --optimize-autoloader \
-    --no-interaction
-
-# Install frontend dependencies
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Build Vue / Vite
-# PHP exists here, so Wayfinder can run php artisan
+COPY . .
+RUN composer dump-autoload --optimize --no-dev
 RUN npm run build
 
-# Remove frontend dependencies after build
-RUN rm -rf node_modules
 
-# Laravel writable directories
-RUN mkdir -p \
-    storage/framework/cache \
-    storage/framework/sessions \
-    storage/framework/views \
-    storage/logs \
-    bootstrap/cache \
-    && php artisan storage:link --force \
+# ---------- Stage 2: Production ----------
+FROM dunglas/frankenphp:1-php8.3
+
+WORKDIR /app
+
+RUN install-php-extensions pdo_mysql zip gd opcache pcntl
+
+# Production PHP settings
+RUN { \
+    echo "opcache.enable=1"; \
+    echo "opcache.memory_consumption=192"; \
+    echo "opcache.max_accelerated_files=20000"; \
+    echo "opcache.validate_timestamps=0"; \
+    echo "memory_limit=256M"; \
+    echo "expose_php=0"; \
+} > /usr/local/etc/php/conf.d/prod.ini
+
+COPY --from=assets /app /app
+RUN rm -rf node_modules \
+    && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
+ENV SERVER_NAME=":8080"
 EXPOSE 8080
 
-CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
+CMD ["sh", "-c", "php artisan storage:link --force && php artisan migrate --force && php artisan optimize && frankenphp php-server --root public --listen :${PORT:-8080}"]
