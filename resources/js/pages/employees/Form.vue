@@ -96,15 +96,19 @@ const submit = () =>
             <CardHeader>
                 <CardTitle>Employee information</CardTitle>
             </CardHeader>
-            <CardContent class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div class="grid gap-2">
+            <CardContent
+                class="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+            >
+                <div class="grid min-w-0 gap-2">
                     <Label for="company_id">Company</Label>
+
                     <select
                         id="company_id"
                         v-model="form.company_id"
-                        class="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        class="h-9 w-full min-w-0 max-w-full truncate rounded-md border border-input bg-background px-3 text-sm"
                     >
                         <option disabled value="">Select company</option>
+
                         <option
                             v-for="company in companies"
                             :key="company.id"
@@ -114,10 +118,11 @@ const submit = () =>
                             {{ company.company_name }}
                         </option>
                     </select>
+
                     <InputError :message="form.errors.company_id" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="employee_number">Employee number</Label>
                     <Input
                         id="employee_number"
@@ -128,7 +133,7 @@ const submit = () =>
                     <InputError :message="form.errors.employee_number" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="status">Status</Label>
                     <select
                         id="status"
@@ -141,7 +146,7 @@ const submit = () =>
                     <InputError :message="form.errors.status" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="first_name">First name</Label>
                     <Input
                         id="first_name"
@@ -151,7 +156,7 @@ const submit = () =>
                     <InputError :message="form.errors.first_name" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="middle_name">Middle name</Label>
                     <Input
                         id="middle_name"
@@ -161,7 +166,7 @@ const submit = () =>
                     <InputError :message="form.errors.middle_name" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="last_name">Last name</Label>
                     <Input
                         id="last_name"
@@ -171,7 +176,7 @@ const submit = () =>
                     <InputError :message="form.errors.last_name" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="email">Email</Label>
                     <Input
                         id="email"
@@ -182,13 +187,13 @@ const submit = () =>
                     <InputError :message="form.errors.email" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="phone">Phone</Label>
                     <Input id="phone" v-model="form.phone" autocomplete="tel" />
                     <InputError :message="form.errors.phone" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="birth_date">Birth date</Label>
                     <Input
                         id="birth_date"
@@ -217,7 +222,7 @@ const submit = () =>
                 <CardTitle>Employment and pay</CardTitle>
             </CardHeader>
             <CardContent class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="hire_date">Hire date</Label>
                     <Input
                         id="hire_date"
@@ -227,7 +232,7 @@ const submit = () =>
                     <InputError :message="form.errors.hire_date" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="department">Department</Label>
                     <Input
                         id="department"
@@ -237,7 +242,7 @@ const submit = () =>
                     <InputError :message="form.errors.department" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="job_title">Job title</Label>
                     <Input
                         id="job_title"
@@ -247,7 +252,7 @@ const submit = () =>
                     <InputError :message="form.errors.job_title" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="employment_type">Employment type</Label>
                     <select
                         id="employment_type"
@@ -265,7 +270,7 @@ const submit = () =>
                     <InputError :message="form.errors.employment_type" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="pay_frequency">Pay frequency</Label>
                     <select
                         id="pay_frequency"
@@ -283,7 +288,7 @@ const submit = () =>
                     <InputError :message="form.errors.pay_frequency" />
                 </div>
 
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="basic_salary">Basic salary</Label>
                     <Input
                         id="basic_salary"
@@ -303,12 +308,12 @@ const submit = () =>
                 <CardTitle>Government IDs</CardTitle>
             </CardHeader>
             <CardContent class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="tin">TIN</Label>
                     <Input id="tin" v-model="form.tin" autocomplete="off" />
                     <InputError :message="form.errors.tin" />
                 </div>
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="sss_number">SSS number</Label>
                     <Input
                         id="sss_number"
@@ -317,7 +322,7 @@ const submit = () =>
                     />
                     <InputError :message="form.errors.sss_number" />
                 </div>
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="philhealth_number">PhilHealth number</Label>
                     <Input
                         id="philhealth_number"
@@ -326,7 +331,7 @@ const submit = () =>
                     />
                     <InputError :message="form.errors.philhealth_number" />
                 </div>
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="pagibig_number">Pag-IBIG number</Label>
                     <Input
                         id="pagibig_number"
@@ -343,7 +348,7 @@ const submit = () =>
                 <CardTitle>Bank details</CardTitle>
             </CardHeader>
             <CardContent class="grid gap-4 md:grid-cols-3">
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="bank_name">Bank name</Label>
                     <Input
                         id="bank_name"
@@ -352,7 +357,7 @@ const submit = () =>
                     />
                     <InputError :message="form.errors.bank_name" />
                 </div>
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="bank_account_name">Account name</Label>
                     <Input
                         id="bank_account_name"
@@ -361,7 +366,7 @@ const submit = () =>
                     />
                     <InputError :message="form.errors.bank_account_name" />
                 </div>
-                <div class="grid gap-2">
+                <div class="grid min-w-0 gap-2">
                     <Label for="bank_account_number">Account number</Label>
                     <Input
                         id="bank_account_number"
