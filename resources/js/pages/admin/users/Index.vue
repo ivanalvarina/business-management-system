@@ -7,12 +7,13 @@ import {
     Pencil,
     Plus,
     Search,
+    Trash2,
 } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { create, edit, index, show } from '@/routes/admin/users';
+import { create, destroy, edit, index, show } from '@/routes/admin/users';
 
 type ManagedUser = {
     id: number;
@@ -82,6 +83,20 @@ const initials = (name: string) =>
         .join('')
         .toUpperCase();
 
+const deleteUser = (user: ManagedUser) => {
+    if (
+        !window.confirm(
+            `Delete ${user.name}? This user will permanently lose access to the system.`,
+        )
+    ) {
+        return;
+    }
+
+    router.visit(destroy(user.id), {
+        preserveScroll: true,
+    });
+};
+
 const prevLink = computed(() => props.users.links[0]);
 const nextLink = computed(
     () => props.users.links[props.users.links.length - 1],
@@ -129,7 +144,7 @@ const showPagination = computed(() => props.users.links.length > 3);
                             <th class="px-5 py-3 font-normal">User</th>
                             <th class="px-5 py-3 font-normal">Roles</th>
                             <th class="px-5 py-3 font-normal">Status</th>
-                            <th class="w-28 px-5 py-3">
+                            <th class="w-36 px-5 py-3">
                                 <span class="sr-only">Actions</span>
                             </th>
                         </tr>
@@ -225,7 +240,20 @@ const showPagination = computed(() => props.users.links.length > 3);
                                             <Pencil class="size-4" />
                                         </Link>
                                     </Button>
-                                    <span v-else class="size-9" />
+                                    <Button
+                                        v-if="
+                                            can.delete &&
+                                            user.id !== $page.props.auth.user.id
+                                        "
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        :aria-label="`Delete ${user.name}`"
+                                        title="Delete"
+                                        @click="deleteUser(user)"
+                                    >
+                                        <Trash2 class="size-4" />
+                                    </Button>
                                 </div>
                             </td>
                         </tr>

@@ -149,10 +149,11 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
         ->middlewareFor(['edit', 'update'], 'can:update,product_service');
 
     Route::resource('employees', EmployeeController::class)
-        ->except(['show', 'destroy'])
+        ->except('show')
         ->middlewareFor('index', 'can:viewAny,'.Employee::class)
         ->middlewareFor(['create', 'store'], 'can:create,'.Employee::class)
-        ->middlewareFor(['edit', 'update'], 'can:update,employee');
+        ->middlewareFor(['edit', 'update'], 'can:update,employee')
+        ->middlewareFor('destroy', 'can:delete,employee');
 
     Route::patch('payrolls/{payroll}/finalize', [PayrollController::class, 'finalize'])
         ->middleware('can:finalize,payroll')

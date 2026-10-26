@@ -6,6 +6,7 @@ import {
     Pencil,
     Plus,
     Search,
+    Trash2,
     Users,
 } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -14,7 +15,7 @@ import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { create, edit, index } from '@/routes/employees';
+import { create, destroy, edit, index } from '@/routes/employees';
 
 type CompanyOption = {
     id: number;
@@ -49,7 +50,7 @@ const props = defineProps<{
         links: PaginationLink[];
         total: number;
     };
-    can: { create: boolean; edit: boolean };
+    can: { create: boolean; edit: boolean; delete: boolean };
 }>();
 
 defineOptions({
@@ -92,6 +93,20 @@ const labelFor = (value: string) =>
         .split('-')
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
+
+const deleteEmployee = (employee: Employee) => {
+    if (
+        !window.confirm(
+            `Delete ${employee.full_name}? Existing payroll records will be kept.`,
+        )
+    ) {
+        return;
+    }
+
+    router.visit(destroy(employee.id), {
+        preserveScroll: true,
+    });
+};
 
 const prevLink = computed(() => props.employees.links[0]);
 const nextLink = computed(
@@ -177,7 +192,7 @@ const showPagination = computed(() => props.employees.links.length > 3);
                                 Basic salary
                             </th>
                             <th class="px-4 py-3 font-medium">Status</th>
-                            <th class="w-14 px-4 py-3">
+                            <th class="w-24 px-4 py-3">
                                 <span class="sr-only">Actions</span>
                             </th>
                         </tr>
@@ -224,20 +239,32 @@ const showPagination = computed(() => props.employees.links.length > 3);
                                     {{ labelFor(employee.status) }}
                                 </StatusBadge>
                             </td>
-                            <td class="px-4 py-3 text-right">
-                                <Button
-                                    v-if="can.edit"
-                                    size="icon"
-                                    variant="ghost"
-                                    as-child
-                                >
-                                    <Link
-                                        :href="edit(employee.id)"
-                                        :aria-label="`Edit ${employee.full_name}`"
+                            <td class="px-4 py-3">
+                                <div class="flex justify-end gap-1">
+                                    <Button
+                                        v-if="can.edit"
+                                        size="icon"
+                                        variant="ghost"
+                                        as-child
                                     >
-                                        <Pencil class="size-4" />
-                                    </Link>
-                                </Button>
+                                        <Link
+                                            :href="edit(employee.id)"
+                                            :aria-label="`Edit ${employee.full_name}`"
+                                        >
+                                            <Pencil class="size-4" />
+                                        </Link>
+                                    </Button>
+                                    <Button
+                                        v-if="can.delete"
+                                        size="icon"
+                                        variant="ghost"
+                                        class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        :aria-label="`Delete ${employee.full_name}`"
+                                        @click="deleteEmployee(employee)"
+                                    >
+                                        <Trash2 class="size-4" />
+                                    </Button>
+                                </div>
                             </td>
                         </tr>
                     </tbody>

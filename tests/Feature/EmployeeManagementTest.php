@@ -2,6 +2,7 @@
 
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\PayrollItem;
 use App\Models\User;
 
 test('users without permission cannot access employee management', function () {
@@ -102,6 +103,49 @@ test('authorized users can update employee pay and employment details', function
     expect($employee->fresh()->job_title)->toBe('Senior Payroll Assistant')
         ->and($employee->fresh()->basic_salary)->toBe('45000.00')
         ->and($employee->fresh()->status)->toBe(Employee::STATUS_INACTIVE);
+});
+
+test('authorized users can delete employees from an accessible company', function () {
+    $user = userWithPermissions(['employees.view', 'employees.delete']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $employee = Employee::factory()->for($company)->create();
+    $payrollItem = PayrollItem::factory()->for($employee)->create();
+
+    $this->actingAs($user)
+        ->delete(route('employees.destroy', $employee))
+        ->assertRedirect(route('employees.index', ['company_id' => $company->id]));
+
+    $this->assertModelMissing($employee);
+    $this->assertModelExists($payrollItem);
+    expect($payrollItem->fresh()->employee_id)->toBeNull();
+});
+
+test('users without delete permission cannot delete employees', function () {
+    $user = userWithPermissions('employees.view');
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $employee = Employee::factory()->for($company)->create();
+
+    $this->actingAs($user)
+        ->delete(route('employees.destroy', $employee))
+        ->assertForbidden();
+
+    $this->assertModelExists($employee);
+});
+
+test('users cannot delete employees from an inaccessible company', function () {
+    $user = userWithPermissions('employees.delete');
+    $accessibleCompany = Company::factory()->create();
+    $inaccessibleCompany = Company::factory()->create();
+    $user->companies()->attach($accessibleCompany);
+    $employee = Employee::factory()->for($inaccessibleCompany)->create();
+
+    $this->actingAs($user)
+        ->delete(route('employees.destroy', $employee))
+        ->assertForbidden();
+
+    $this->assertModelExists($employee);
 });
 
 /**

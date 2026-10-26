@@ -44,7 +44,7 @@ class EmployeePolicy
      */
     public function delete(User $user, Employee $employee): bool
     {
-        return false;
+        return $user->can('employees.delete') && $user->canAccessCompany($employee->company);
     }
 
     /**

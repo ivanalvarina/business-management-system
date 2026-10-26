@@ -23,6 +23,7 @@ return [
         'employees.view',
         'employees.create',
         'employees.edit',
+        'employees.delete',
         'payrolls.view',
         'payrolls.create',
         'payrolls.edit',

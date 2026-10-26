@@ -58,6 +58,7 @@ class EmployeeController extends Controller
             'can' => [
                 'create' => $request->user()->can('create', Employee::class),
                 'edit' => $request->user()->can('employees.edit'),
+                'delete' => $request->user()->can('employees.delete'),
             ],
         ]);
     }
@@ -132,6 +133,24 @@ class EmployeeController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Employee updated.')]);
 
         return to_route('employees.index', ['company_id' => $employee->company_id]);
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(Request $request, Employee $employee, AuditLogger $audit): RedirectResponse
+    {
+        Gate::authorize('delete', $employee);
+
+        $companyId = $employee->company_id;
+        $oldValues = $employee->only($this->auditedAttributes());
+
+        $employee->delete();
+        $audit->record('employees', 'deleted', $employee, oldValues: $oldValues, request: $request);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Employee deleted.')]);
+
+        return to_route('employees.index', ['company_id' => $companyId]);
     }
 
     /**
