@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\Auth\ForcedPasswordController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\ClientPurchaseOrderController;
 use App\Http\Controllers\CompanyController;
@@ -42,6 +43,14 @@ Route::get('/', function () {
 
 Route::get('product/{publicToken}', [PublicProductController::class, 'show'])
     ->name('public-products.show');
+
+Route::middleware(['auth', 'active'])->group(function (): void {
+    Route::get('change-password', [ForcedPasswordController::class, 'edit'])
+        ->name('password.change.edit');
+    Route::put('change-password', [ForcedPasswordController::class, 'update'])
+        ->middleware('throttle:6,1')
+        ->name('password.change.update');
+});
 
 Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::get('dashboard', DashboardController::class)

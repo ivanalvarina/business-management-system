@@ -3,6 +3,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
 import PageHeader from '@/components/app/PageHeader.vue';
 import InputError from '@/components/InputError.vue';
+import PasswordInput from '@/components/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,6 +32,8 @@ defineOptions({
 const form = useForm({
     name: '',
     email: '',
+    password: '',
+    password_confirmation: '',
     is_active: true,
     roles: [] as number[],
 });
@@ -50,7 +53,7 @@ const submit = () => form.submit(UserController.store());
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
         <PageHeader
             title="Create user"
-            description="Create an account and send a secure password reset link."
+            description="Create an account with a temporary password. The user must replace it after the first login."
         />
 
         <Card>
@@ -76,6 +79,41 @@ const submit = () => form.submit(UserController.store());
                         />
                         <InputError :message="form.errors.email" />
                     </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div class="grid gap-2">
+                            <Label for="password">Temporary password</Label>
+                            <PasswordInput
+                                id="password"
+                                v-model="form.password"
+                                autocomplete="new-password"
+                                minlength="8"
+                                placeholder="Minimum 8 characters"
+                            />
+                            <InputError :message="form.errors.password" />
+                        </div>
+
+                        <div class="grid gap-2">
+                            <Label for="password_confirmation">
+                                Confirm temporary password
+                            </Label>
+                            <PasswordInput
+                                id="password_confirmation"
+                                v-model="form.password_confirmation"
+                                autocomplete="new-password"
+                                minlength="8"
+                                placeholder="Repeat temporary password"
+                            />
+                            <InputError
+                                :message="form.errors.password_confirmation"
+                            />
+                        </div>
+                    </div>
+
+                    <p class="text-sm text-muted-foreground">
+                        Letters, numbers, and special characters are optional.
+                        Only a minimum of 8 characters is required.
+                    </p>
 
                     <label class="flex items-center gap-2 text-sm">
                         <Checkbox

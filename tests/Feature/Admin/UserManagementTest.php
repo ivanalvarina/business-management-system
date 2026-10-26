@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\User;
-use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Spatie\Permission\Models\Role;
 
@@ -30,6 +30,8 @@ test('authorized users can create users and assign roles', function () {
         ->post(route('admin.users.store'), [
             'name' => 'Morgan Lee',
             'email' => 'morgan@example.test',
+            'password' => 'abcdefgh',
+            'password_confirmation' => 'abcdefgh',
             'is_active' => true,
             'roles' => [$role->id],
         ])
@@ -38,9 +40,32 @@ test('authorized users can create users and assign roles', function () {
     $createdUser = User::where('email', 'morgan@example.test')->firstOrFail();
 
     expect($createdUser->is_active)->toBeTrue()
+        ->and($createdUser->must_change_password)->toBeTrue()
+        ->and($createdUser->hasVerifiedEmail())->toBeTrue()
+        ->and(Hash::check('abcdefgh', $createdUser->password))->toBeTrue()
         ->and($createdUser->hasRole($role))->toBeTrue();
 
-    Notification::assertSentTo($createdUser, ResetPassword::class);
+    Notification::assertNothingSent();
+});
+
+test('temporary password must contain at least eight characters', function () {
+    Notification::fake();
+
+    $admin = userWithPermissions('users.create');
+
+    $this->actingAs($admin)
+        ->post(route('admin.users.store'), [
+            'name' => 'Morgan Lee',
+            'email' => 'morgan@example.test',
+            'password' => 'short7',
+            'password_confirmation' => 'short7',
+            'is_active' => true,
+            'roles' => [],
+        ])
+        ->assertSessionHasErrors('password');
+
+    expect(User::where('email', 'morgan@example.test')->exists())->toBeFalse();
+    Notification::assertNothingSent();
 });
 
 test('authorized users can deactivate another user', function () {

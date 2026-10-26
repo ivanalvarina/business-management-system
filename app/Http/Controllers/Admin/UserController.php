@@ -11,7 +11,6 @@ use App\Support\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\Permission\Models\Role;
@@ -82,18 +81,18 @@ class UserController extends Controller
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
-            'password' => Str::password(32),
+            'password' => $validated['password'],
+            'must_change_password' => true,
             'is_active' => $validated['is_active'],
         ]);
+        $user->markEmailAsVerified();
 
         $this->syncRoles($user, $validated['roles'] ?? []);
         $audit->record('users', 'created', $user, newValues: [
             ...$user->only($this->auditedAttributes()),
             'role_ids' => $validated['roles'] ?? [],
         ], request: $request);
-        Password::sendResetLink(['email' => $user->email]);
-
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('User created and password reset link sent.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('User created with a temporary password.')]);
 
         return to_route('admin.users.show', $user);
     }
