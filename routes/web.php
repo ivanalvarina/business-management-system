@@ -9,6 +9,11 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CurrentCompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\PayrollBulkPayslipController;
+use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\PayrollExportController;
+use App\Http\Controllers\PayrollPayslipController;
 use App\Http\Controllers\ProductServiceController;
 use App\Http\Controllers\PublicProductController;
 use App\Http\Controllers\PurchaseOrderController;
@@ -21,6 +26,8 @@ use App\Models\Client;
 use App\Models\ClientPurchaseOrder;
 use App\Models\Company;
 use App\Models\Document;
+use App\Models\Employee;
+use App\Models\Payroll;
 use App\Models\ProductService;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
@@ -131,6 +138,33 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
         ->middlewareFor('show', 'can:view,product_service')
         ->middlewareFor(['create', 'store'], 'can:create,'.ProductService::class)
         ->middlewareFor(['edit', 'update'], 'can:update,product_service');
+
+    Route::resource('employees', EmployeeController::class)
+        ->except(['show', 'destroy'])
+        ->middlewareFor('index', 'can:viewAny,'.Employee::class)
+        ->middlewareFor(['create', 'store'], 'can:create,'.Employee::class)
+        ->middlewareFor(['edit', 'update'], 'can:update,employee');
+
+    Route::patch('payrolls/{payroll}/finalize', [PayrollController::class, 'finalize'])
+        ->middleware('can:finalize,payroll')
+        ->name('payrolls.finalize');
+    Route::patch('payrolls/{payroll}/reopen', [PayrollController::class, 'reopen'])
+        ->middleware('can:reopen,payroll')
+        ->name('payrolls.reopen');
+    Route::get('payrolls/{payroll}/items/{payrollItem}/payslip', PayrollPayslipController::class)
+        ->name('payrolls.payslips.show');
+    Route::get('payrolls/{payroll}/payslips/print', PayrollBulkPayslipController::class)
+        ->middleware('can:printPayslip,payroll')
+        ->name('payrolls.payslips.bulk');
+    Route::get('payrolls/{payroll}/export', PayrollExportController::class)
+        ->middleware('can:export,payroll')
+        ->name('payrolls.export');
+    Route::resource('payrolls', PayrollController::class)
+        ->only(['index', 'create', 'store', 'show', 'update'])
+        ->middlewareFor('index', 'can:viewAny,'.Payroll::class)
+        ->middlewareFor('show', 'can:view,payroll')
+        ->middlewareFor(['create', 'store'], 'can:create,'.Payroll::class)
+        ->middlewareFor('update', 'can:update,payroll');
 
     Route::patch('quotations/{quotation}/submit', [QuotationController::class, 'submit'])
         ->middleware('can:submit,quotation')

@@ -68,6 +68,26 @@ class Company extends Model
     }
 
     /**
+     * @return HasMany<Employee, $this>
+     */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
+
+    /** @return HasOne<PayrollSetting, $this> */
+    public function payrollSetting(): HasOne
+    {
+        return $this->hasOne(PayrollSetting::class);
+    }
+
+    /** @return HasMany<Payroll, $this> */
+    public function payrolls(): HasMany
+    {
+        return $this->hasMany(Payroll::class);
+    }
+
+    /**
      * @return MorphMany<Document, $this>
      */
     public function documents(): MorphMany

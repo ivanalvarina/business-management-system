@@ -40,10 +40,15 @@ class DatabaseSeeder extends Seeder
 
         $superAdmin->syncRoles([$superAdminRole]);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'test@example.com'],
+            [
+                'name' => 'Test User',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+                'is_active' => true,
+            ],
+        );
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

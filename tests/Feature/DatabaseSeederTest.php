@@ -20,3 +20,11 @@ test('database seeder creates a super admin user with all permissions', function
         ->and($superAdmin->hasAllPermissions($permissions))->toBeTrue()
         ->and(Role::where('name', 'Super Admin')->firstOrFail()->permissions)->toHaveCount(count($permissions));
 });
+
+test('database seeder can be rerun without duplicating default users', function () {
+    $this->seed(DatabaseSeeder::class);
+    $this->seed(DatabaseSeeder::class);
+
+    expect(User::where('email', 'superadmin@email.com')->count())->toBe(1)
+        ->and(User::where('email', 'test@example.com')->count())->toBe(1);
+});

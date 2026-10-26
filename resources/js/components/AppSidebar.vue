@@ -7,12 +7,14 @@ import {
     FileText,
     LayoutGrid,
     Package,
+    PhilippinePeso,
     ReceiptText,
     ScrollText,
     Settings,
     ShieldCheck,
     ShoppingCart,
     Store,
+    UserRound,
     Users,
     Workflow,
 } from '@lucide/vue';
@@ -37,6 +39,8 @@ import { index as clientPosIndex } from '@/routes/client-pos';
 import { index as clientsIndex } from '@/routes/clients';
 import { index as companiesIndex } from '@/routes/companies';
 import { index as documentsIndex } from '@/routes/documents';
+import { index as employeesIndex } from '@/routes/employees';
+import { index as payrollsIndex } from '@/routes/payrolls';
 import { index as productServicesIndex } from '@/routes/product-services';
 import { index as purchaseOrdersIndex } from '@/routes/purchase-orders';
 import { index as purchaseRequestsIndex } from '@/routes/purchase-requests';
@@ -93,6 +97,23 @@ const navigationSections = computed<NavSection[]>(() =>
                     href: productServicesIndex(),
                     icon: Package,
                     permission: 'products-services.view',
+                },
+                {
+                    title: 'Employees',
+                    href: employeesIndex(),
+                    icon: UserRound,
+                    permission: 'employees.view',
+                },
+            ],
+        },
+        {
+            title: 'Payroll',
+            items: [
+                {
+                    title: 'Payroll Runs',
+                    href: payrollsIndex(),
+                    icon: PhilippinePeso,
+                    permission: 'payrolls.view',
                 },
             ],
         },
