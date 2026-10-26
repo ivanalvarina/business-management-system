@@ -29,7 +29,8 @@ class StorePayrollRequest extends FormRequest
         return [
             'company_id' => ['required', 'integer', 'exists:companies,id'],
             'payroll_month' => ['required', 'date_format:Y-m'],
-            'payday' => ['required', 'integer', Rule::in([10, 25])],
+            'payroll_group' => ['required', 'string', Rule::in(Payroll::creatableGroups())],
+            'cutoff_type' => ['required', 'string', Rule::in(Payroll::cutoffTypes())],
         ];
     }
 

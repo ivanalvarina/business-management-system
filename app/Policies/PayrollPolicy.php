@@ -46,7 +46,9 @@ class PayrollPolicy
      */
     public function delete(User $user, Payroll $payroll): bool
     {
-        return false;
+        return $payroll->isDraft()
+            && $user->can('payrolls.delete')
+            && $user->canAccessCompany($payroll->company);
     }
 
     public function finalize(User $user, Payroll $payroll): bool

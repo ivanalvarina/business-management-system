@@ -16,21 +16,40 @@ test('payroll creation loads only active semi-monthly employees for the first-ha
     $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
     $company = Company::factory()->create();
     $user->companies()->attach($company);
-    $included = Employee::factory()->for($company)->create(['employee_number' => 'EMP-1001', 'basic_salary' => 30000]);
+    $included = Employee::factory()->for($company)->create([
+        'employee_number' => 'EMP-1001',
+        'employment_type' => Employee::EMPLOYMENT_REGULAR,
+        'basic_salary' => 30000,
+    ]);
+    $probationary = Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_PROBATIONARY,
+    ]);
+    Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_CONTRACTUAL,
+    ]);
     Employee::factory()->for($company)->inactive()->create();
     Employee::factory()->for($company)->create(['pay_frequency' => Employee::PAY_FREQUENCY_MONTHLY]);
     Employee::factory()->create();
 
     $this->actingAs($user)
-        ->post(route('payrolls.store'), ['company_id' => $company->id, 'payroll_month' => '2026-10', 'payday' => 25])
+        ->post(route('payrolls.store'), [
+            'company_id' => $company->id,
+            'payroll_month' => '2026-10',
+            'payroll_group' => Payroll::GROUP_REGULAR,
+            'cutoff_type' => Payroll::CUTOFF_FIRST_HALF,
+        ])
         ->assertRedirect();
 
     $payroll = Payroll::query()->sole();
-    $item = $payroll->items()->sole();
+    $item = $payroll->items()->where('employee_id', $included->id)->sole();
 
     expect($payroll->period_start->toDateString())->toBe('2026-10-01')
         ->and($payroll->period_end->toDateString())->toBe('2026-10-15')
-        ->and($payroll->pay_date->toDateString())->toBe('2026-10-25')
+        ->and($payroll->pay_date->toDateString())->toBe('2026-10-23')
+        ->and($payroll->payroll_group)->toBe(Payroll::GROUP_REGULAR)
+        ->and($payroll->cutoff_type)->toBe(Payroll::CUTOFF_FIRST_HALF)
+        ->and($payroll->items()->pluck('employee_id')->sort()->values()->all())
+        ->toBe(collect([$included->id, $probationary->id])->sort()->values()->all())
         ->and($item->employee_id)->toBe($included->id)
         ->and($item->payroll_days_basis)->toEqual(13)
         ->and($item->monthly_workdays_divisor)->toEqual(26)
@@ -42,10 +61,17 @@ test('the second-half cutoff is paid on the tenth of the next month', function (
     $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
     $company = Company::factory()->create();
     $user->companies()->attach($company);
-    Employee::factory()->for($company)->create();
+    Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_REGULAR,
+    ]);
 
     $this->actingAs($user)
-        ->post(route('payrolls.store'), ['company_id' => $company->id, 'payroll_month' => '2026-10', 'payday' => 10])
+        ->post(route('payrolls.store'), [
+            'company_id' => $company->id,
+            'payroll_month' => '2026-10',
+            'payroll_group' => Payroll::GROUP_REGULAR,
+            'cutoff_type' => Payroll::CUTOFF_SECOND_HALF,
+        ])
         ->assertRedirect();
 
     $payroll = Payroll::query()->sole();
@@ -53,6 +79,78 @@ test('the second-half cutoff is paid on the tenth of the next month', function (
     expect($payroll->period_start->toDateString())->toBe('2026-10-16')
         ->and($payroll->period_end->toDateString())->toBe('2026-10-31')
         ->and($payroll->pay_date->toDateString())->toBe('2026-11-10');
+});
+
+test('contractual payroll loads only contractual employees', function () {
+    $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $contractual = Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_CONTRACTUAL,
+    ]);
+    Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_REGULAR,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('payrolls.store'), [
+            'company_id' => $company->id,
+            'payroll_month' => '2026-08',
+            'payroll_group' => Payroll::GROUP_CONTRACTUAL,
+            'cutoff_type' => Payroll::CUTOFF_FIRST_HALF,
+        ])
+        ->assertRedirect();
+
+    $payroll = Payroll::query()->sole();
+
+    expect($payroll->pay_date->toDateString())->toBe('2026-08-14')
+        ->and($payroll->items()->sole()->employee_id)->toBe($contractual->id);
+});
+
+test('regular and contractual payrolls may use the same cutoff but duplicate groups may not', function () {
+    $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    Employee::factory()->for($company)->create(['employment_type' => Employee::EMPLOYMENT_REGULAR]);
+    Employee::factory()->for($company)->create(['employment_type' => Employee::EMPLOYMENT_CONTRACTUAL]);
+    $payload = [
+        'company_id' => $company->id,
+        'payroll_month' => '2026-10',
+        'cutoff_type' => Payroll::CUTOFF_FIRST_HALF,
+    ];
+
+    $this->actingAs($user)->post(route('payrolls.store'), [
+        ...$payload,
+        'payroll_group' => Payroll::GROUP_REGULAR,
+    ])->assertRedirect();
+    $this->actingAs($user)->post(route('payrolls.store'), [
+        ...$payload,
+        'payroll_group' => Payroll::GROUP_CONTRACTUAL,
+    ])->assertRedirect();
+    $this->actingAs($user)->post(route('payrolls.store'), [
+        ...$payload,
+        'payroll_group' => Payroll::GROUP_REGULAR,
+    ])->assertSessionHasErrors('payroll_month');
+
+    expect(Payroll::query()->count())->toBe(2);
+});
+
+test('payroll creation rejects an employee group with no matching employees', function () {
+    $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    Employee::factory()->for($company)->create(['employment_type' => Employee::EMPLOYMENT_REGULAR]);
+
+    $this->actingAs($user)
+        ->post(route('payrolls.store'), [
+            'company_id' => $company->id,
+            'payroll_month' => '2026-10',
+            'payroll_group' => Payroll::GROUP_CONTRACTUAL,
+            'cutoff_type' => Payroll::CUTOFF_FIRST_HALF,
+        ])
+        ->assertSessionHasErrors('payroll_group');
+
+    expect(Payroll::query()->doesntExist())->toBeTrue();
 });
 
 test('authorized users can save payroll inputs and computed amounts', function () {
@@ -116,6 +214,104 @@ test('finalized payroll is locked until an authorized user reopens it', function
     expect($payroll->fresh()->status)->toBe(Payroll::STATUS_DRAFT);
 });
 
+test('authorized users can delete a draft payroll run and its payroll items', function () {
+    $user = userWithPermissions(['payrolls.view', 'payrolls.delete']);
+    $payroll = Payroll::factory()->create();
+    $user->companies()->attach($payroll->company_id);
+    $item = payrollItemFor($payroll);
+
+    $this->actingAs($user)
+        ->delete(route('payrolls.destroy', $payroll))
+        ->assertRedirect(route('payrolls.index', ['company_id' => $payroll->company_id]));
+
+    $this->assertModelMissing($payroll);
+    $this->assertModelMissing($item);
+    $this->assertDatabaseHas('audit_logs', [
+        'user_id' => $user->id,
+        'module' => 'payrolls',
+        'action' => 'deleted',
+        'subject_id' => $payroll->id,
+    ]);
+});
+
+test('users without delete permission cannot delete a payroll run', function () {
+    $user = userWithPermissions('payrolls.view');
+    $payroll = Payroll::factory()->create();
+    $user->companies()->attach($payroll->company_id);
+
+    $this->actingAs($user)
+        ->delete(route('payrolls.destroy', $payroll))
+        ->assertForbidden();
+
+    $this->assertModelExists($payroll);
+});
+
+test('finalized payroll runs cannot be deleted', function () {
+    $user = userWithPermissions('payrolls.delete');
+    $payroll = Payroll::factory()->create(['status' => Payroll::STATUS_FINALIZED]);
+    $user->companies()->attach($payroll->company_id);
+
+    $this->actingAs($user)
+        ->delete(route('payrolls.destroy', $payroll))
+        ->assertForbidden();
+
+    $this->assertModelExists($payroll);
+});
+
+test('users cannot delete payroll runs from an inaccessible company', function () {
+    $user = userWithPermissions('payrolls.delete');
+    $accessibleCompany = Company::factory()->create();
+    $user->companies()->attach($accessibleCompany);
+    $payroll = Payroll::factory()->create();
+
+    $this->actingAs($user)
+        ->delete(route('payrolls.destroy', $payroll))
+        ->assertForbidden();
+
+    $this->assertModelExists($payroll);
+});
+
+test('finalizing payroll assigns sequential voucher numbers only to contractual employees', function () {
+    $user = userWithPermissions('payrolls.finalize');
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $firstPayroll = Payroll::factory()->for($company)->for($user, 'creator')->create();
+    $secondPayroll = Payroll::factory()->for($company)->for($user, 'creator')->create([
+        'period_start' => '2026-10-16',
+        'period_end' => '2026-10-31',
+        'pay_date' => '2026-11-10',
+    ]);
+    $contractualEmployee = Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_CONTRACTUAL,
+    ]);
+    $regularEmployee = Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_REGULAR,
+    ]);
+    $firstContractualItem = PayrollItem::factory()
+        ->for($firstPayroll)
+        ->for($contractualEmployee)
+        ->create(['employment_type' => Employee::EMPLOYMENT_CONTRACTUAL]);
+    $regularItem = PayrollItem::factory()
+        ->for($firstPayroll)
+        ->for($regularEmployee)
+        ->create(['employment_type' => Employee::EMPLOYMENT_REGULAR]);
+    $secondContractualItem = PayrollItem::factory()
+        ->for($secondPayroll)
+        ->for($contractualEmployee)
+        ->create(['employment_type' => Employee::EMPLOYMENT_CONTRACTUAL]);
+
+    $this->actingAs($user)
+        ->patch(route('payrolls.finalize', $firstPayroll))
+        ->assertRedirect(route('payrolls.show', $firstPayroll));
+    $this->actingAs($user)
+        ->patch(route('payrolls.finalize', $secondPayroll))
+        ->assertRedirect(route('payrolls.show', $secondPayroll));
+
+    expect($firstContractualItem->fresh()->voucher_no)->toBe('26001')
+        ->and($regularItem->fresh()->voucher_no)->toBeNull()
+        ->and($secondContractualItem->fresh()->voucher_no)->toBe('26002');
+});
+
 test('authorized users can preview an employee payslip as a pdf', function () {
     $user = userWithPermissions('payslips.view');
     $payroll = Payroll::factory()->create();
@@ -126,6 +322,40 @@ test('authorized users can preview an employee payslip as a pdf', function () {
 
     $response->assertOk()->assertHeader('Content-Type', 'application/pdf');
     expect($response->getContent())->toStartWith('%PDF-');
+});
+
+test('contractual employee voucher contains both copies on one pdf page', function () {
+    $user = userWithPermissions('payslips.view');
+    $payroll = Payroll::factory()->create();
+    $user->companies()->attach($payroll->company_id);
+    $employee = Employee::factory()->for($payroll->company)->create([
+        'employment_type' => Employee::EMPLOYMENT_CONTRACTUAL,
+    ]);
+    $item = PayrollItem::factory()
+        ->for($payroll)
+        ->for($employee)
+        ->create([
+            'employee_number' => 'CONT-001',
+            'employment_type' => Employee::EMPLOYMENT_CONTRACTUAL,
+            'voucher_no' => '26001',
+            'absence_deduction' => 500,
+            'late_deduction' => 75,
+            'sss_contribution' => 100,
+            'philhealth_contribution' => 100,
+            'pagibig_contribution' => 100,
+            'withholding_tax' => 100,
+            'other_deduction' => 50,
+            'total_deductions' => 1025,
+            'net_pay' => 13975,
+        ]);
+
+    $response = $this->actingAs($user)->get(route('payrolls.payslips.show', [$payroll, $item]));
+
+    $response->assertOk()
+        ->assertHeader('Content-Type', 'application/pdf')
+        ->assertHeader('Content-Disposition', 'inline; filename="CONT-001-voucher.pdf"');
+    expect($response->getContent())->toStartWith('%PDF-')
+        ->and(preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()))->toBe(1);
 });
 
 test('authorized users can preview all employee payslips in one pdf', function () {

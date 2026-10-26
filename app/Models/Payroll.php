@@ -8,10 +8,34 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
-#[Fillable(['company_id', 'period_start', 'period_end', 'pay_date', 'status', 'created_by', 'finalized_by', 'finalized_at'])]
+/**
+ * @property int $id
+ * @property int $company_id
+ * @property string $payroll_group
+ * @property string $cutoff_type
+ * @property Carbon $period_start
+ * @property Carbon $period_end
+ * @property Carbon $pay_date
+ * @property string $status
+ * @property int $created_by
+ * @property int|null $finalized_by
+ * @property Carbon|null $finalized_at
+ */
+#[Fillable(['company_id', 'payroll_group', 'cutoff_type', 'period_start', 'period_end', 'pay_date', 'status', 'created_by', 'finalized_by', 'finalized_at'])]
 class Payroll extends Model
 {
+    public const CUTOFF_FIRST_HALF = 'first_half';
+
+    public const CUTOFF_SECOND_HALF = 'second_half';
+
+    public const GROUP_CONTRACTUAL = 'contractual';
+
+    public const GROUP_MIXED = 'mixed';
+
+    public const GROUP_REGULAR = 'regular';
+
     public const STATUS_DRAFT = 'draft';
 
     public const STATUS_FINALIZED = 'finalized';
@@ -46,6 +70,18 @@ class Payroll extends Model
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
+    }
+
+    /** @return array<int, string> */
+    public static function creatableGroups(): array
+    {
+        return [self::GROUP_REGULAR, self::GROUP_CONTRACTUAL];
+    }
+
+    /** @return array<int, string> */
+    public static function cutoffTypes(): array
+    {
+        return [self::CUTOFF_FIRST_HALF, self::CUTOFF_SECOND_HALF];
     }
 
     protected function casts(): array

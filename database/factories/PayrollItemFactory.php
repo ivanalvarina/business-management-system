@@ -48,6 +48,8 @@ class PayrollItemFactory extends Factory
             'employee_name' => fake()->name(),
             'department' => 'Operations',
             'job_title' => fake()->jobTitle(),
+            'employment_type' => Employee::EMPLOYMENT_REGULAR,
+            'voucher_no' => null,
             'pay_frequency' => Employee::PAY_FREQUENCY_SEMI_MONTHLY,
             'bank_name' => 'MVP Bank',
             'bank_account_last_four' => fake()->numerify('####'),

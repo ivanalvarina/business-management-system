@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
+import { Form, Head, Link, router } from '@inertiajs/vue3';
 import { update } from '@/actions/App/Http/Controllers/Auth/ForcedPasswordController';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { logout } from '@/routes';
 
 defineProps<{
     passwordRules: string;
@@ -17,6 +18,10 @@ defineOptions({
         description: 'Replace your temporary password to continue',
     },
 });
+
+const handleCancel = () => {
+    router.flushAll();
+};
 </script>
 
 <template>
@@ -75,15 +80,35 @@ defineOptions({
                     <InputError :message="errors.password_confirmation" />
                 </div>
 
-                <Button
-                    type="submit"
-                    class="h-11 w-full"
-                    :disabled="processing"
-                    data-test="change-temporary-password-button"
-                >
-                    <Spinner v-if="processing" />
-                    {{ processing ? 'Saving...' : 'Change password' }}
-                </Button>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        class="h-11 w-full"
+                        :disabled="processing"
+                        as-child
+                    >
+                        <Link
+                            :href="logout()"
+                            as="button"
+                            type="button"
+                            data-test="cancel-password-change-button"
+                            @click="handleCancel"
+                        >
+                            Cancel
+                        </Link>
+                    </Button>
+
+                    <Button
+                        type="submit"
+                        class="h-11 w-full"
+                        :disabled="processing"
+                        data-test="change-temporary-password-button"
+                    >
+                        <Spinner v-if="processing" />
+                        {{ processing ? 'Saving...' : 'Change password' }}
+                    </Button>
+                </div>
             </Form>
         </div>
     </div>

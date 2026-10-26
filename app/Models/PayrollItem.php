@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['payroll_id', 'employee_id', 'employee_number', 'employee_name', 'department', 'job_title', 'pay_frequency', 'monthly_basic_salary', 'bank_name', 'bank_account_last_four', 'hours_per_day', 'payroll_days_basis', 'monthly_workdays_divisor', 'annual_workdays_divisor', 'regular_ot_multiplier', 'special_holiday_multiplier', 'special_holiday_ot_multiplier', 'regular_holiday_multiplier', 'regular_holiday_ot_multiplier', 'days_worked', 'absent_days', 'late_hours', 'regular_ot_hours', 'special_holiday_hours', 'special_holiday_ot_hours', 'regular_holiday_hours', 'regular_holiday_ot_hours', 'salary_adjustment', 'sss_contribution', 'philhealth_contribution', 'pagibig_contribution', 'withholding_tax', 'other_deduction', 'allowance', 'period_basic_pay', 'daily_rate', 'hourly_rate', 'absence_deduction', 'late_deduction', 'regular_ot_pay', 'special_holiday_pay', 'special_holiday_ot_pay', 'regular_holiday_pay', 'regular_holiday_ot_pay', 'gross_pay', 'total_deductions', 'net_pay'])]
+#[Fillable(['payroll_id', 'employee_id', 'employee_number', 'employee_name', 'department', 'job_title', 'employment_type', 'voucher_no', 'pay_frequency', 'monthly_basic_salary', 'bank_name', 'bank_account_last_four', 'hours_per_day', 'payroll_days_basis', 'monthly_workdays_divisor', 'annual_workdays_divisor', 'regular_ot_multiplier', 'special_holiday_multiplier', 'special_holiday_ot_multiplier', 'regular_holiday_multiplier', 'regular_holiday_ot_multiplier', 'days_worked', 'absent_days', 'late_hours', 'regular_ot_hours', 'special_holiday_hours', 'special_holiday_ot_hours', 'regular_holiday_hours', 'regular_holiday_ot_hours', 'salary_adjustment', 'sss_contribution', 'philhealth_contribution', 'pagibig_contribution', 'withholding_tax', 'other_deduction', 'allowance', 'period_basic_pay', 'daily_rate', 'hourly_rate', 'absence_deduction', 'late_deduction', 'regular_ot_pay', 'special_holiday_pay', 'special_holiday_ot_pay', 'regular_holiday_pay', 'regular_holiday_ot_pay', 'gross_pay', 'total_deductions', 'net_pay'])]
 class PayrollItem extends Model
 {
     /** @use HasFactory<PayrollItemFactory> */
@@ -30,7 +30,7 @@ class PayrollItem extends Model
 
     protected function casts(): array
     {
-        $decimals = array_diff($this->getFillable(), ['payroll_id', 'employee_id', 'employee_number', 'employee_name', 'department', 'job_title', 'pay_frequency', 'bank_name', 'bank_account_last_four']);
+        $decimals = array_diff($this->getFillable(), ['payroll_id', 'employee_id', 'employee_number', 'employee_name', 'department', 'job_title', 'employment_type', 'voucher_no', 'pay_frequency', 'bank_name', 'bank_account_last_four']);
 
         return collect($decimals)->mapWithKeys(fn (string $attribute): array => [$attribute => 'decimal:2'])->all();
     }

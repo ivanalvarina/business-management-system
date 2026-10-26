@@ -170,11 +170,12 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
         ->middleware('can:export,payroll')
         ->name('payrolls.export');
     Route::resource('payrolls', PayrollController::class)
-        ->only(['index', 'create', 'store', 'show', 'update'])
+        ->only(['index', 'create', 'store', 'show', 'update', 'destroy'])
         ->middlewareFor('index', 'can:viewAny,'.Payroll::class)
         ->middlewareFor('show', 'can:view,payroll')
         ->middlewareFor(['create', 'store'], 'can:create,'.Payroll::class)
-        ->middlewareFor('update', 'can:update,payroll');
+        ->middlewareFor('update', 'can:update,payroll')
+        ->middlewareFor('destroy', 'can:delete,payroll');
 
     Route::patch('quotations/{quotation}/submit', [QuotationController::class, 'submit'])
         ->middleware('can:submit,quotation')

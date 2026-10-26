@@ -34,6 +34,7 @@ type PayrollItem = {
     employee_name: string;
     department: string | null;
     job_title: string;
+    employment_type: 'regular' | 'probationary' | 'contractual';
     monthly_basic_salary: string;
     bank_name: string | null;
     bank_account_last_four: string | null;
@@ -63,6 +64,8 @@ type PayrollItem = {
 type Payroll = {
     id: number;
     company: { id: number; company_code: string; company_name: string };
+    payroll_group: 'regular' | 'contractual' | 'mixed';
+    cutoff_type: 'first_half' | 'second_half';
     period_start: string;
     period_end: string;
     pay_date: string;
@@ -82,6 +85,13 @@ const props = defineProps<{
         export: boolean;
     };
 }>();
+const payrollGroupLabel = computed(() =>
+    props.payroll.payroll_group === 'contractual'
+        ? 'Contractual'
+        : props.payroll.payroll_group === 'mixed'
+          ? 'Mixed historical'
+          : 'Regular',
+);
 defineOptions({
     layout: {
         breadcrumbs: [
@@ -308,7 +318,7 @@ const reopenPayroll = () => {
     <Head :title="`Payroll ${date(payroll.pay_date)}`" />
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
         <PageHeader
-            :title="`${payroll.company.company_name} payroll`"
+            :title="`${payroll.company.company_name} ${payrollGroupLabel} payroll`"
             :description="`${date(payroll.period_start)} – ${date(payroll.period_end)} · Pay date ${date(payroll.pay_date)}`"
         >
             <template #actions>
@@ -877,7 +887,13 @@ const reopenPayroll = () => {
                                             "
                                             target="_blank"
                                             rel="noopener"
-                                            ><FileText /> PDF</a
+                                            ><FileText />
+                                            {{
+                                                item.employment_type ===
+                                                'contractual'
+                                                    ? 'Voucher PDF'
+                                                    : 'Payslip PDF'
+                                            }}</a
                                         ></Button
                                     >
                                 </td>

@@ -14,7 +14,7 @@ class PayrollBulkPayslipController extends Controller
         $payroll->load(['company', 'items']);
         $filename = Str::slug(
             $payroll->company->company_code.'-'.$payroll->period_start->format('Y-m-d').'-'.$payroll->period_end->format('Y-m-d'),
-        ).'-payslips.pdf';
+        ).'-payroll-documents.pdf';
 
         return response($renderer->renderPayroll($payroll), 200, [
             'Content-Type' => 'application/pdf',

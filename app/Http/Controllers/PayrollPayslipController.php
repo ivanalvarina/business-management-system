@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Employee;
 use App\Models\Payroll;
 use App\Models\PayrollItem;
 use App\Support\PayrollPayslipPdfRenderer;
@@ -18,7 +19,10 @@ class PayrollPayslipController extends Controller
         );
         abort_unless($payrollItem->payroll_id === $payroll->id, 404);
 
-        $filename = preg_replace('/[^A-Za-z0-9_-]+/', '-', $payrollItem->employee_number).'-payslip.pdf';
+        $documentType = $payrollItem->employment_type === Employee::EMPLOYMENT_CONTRACTUAL
+            ? 'voucher'
+            : 'payslip';
+        $filename = preg_replace('/[^A-Za-z0-9_-]+/', '-', $payrollItem->employee_number).'-'.$documentType.'.pdf';
 
         return response($renderer->render($payrollItem), 200, [
             'Content-Type' => 'application/pdf',

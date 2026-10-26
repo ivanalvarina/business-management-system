@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StorePayrollRequest;
 use App\Http\Requests\UpdatePayrollRequest;
 use App\Models\Company;
+use App\Models\DocumentSequence;
 use App\Models\Employee;
 use App\Models\Payroll;
 use App\Models\PayrollItem;
 use App\Models\PayrollSetting;
 use App\Models\User;
+use App\Support\AuditLogger;
 use App\Support\PayrollCalculator;
 use App\Support\PayrollPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -32,7 +34,7 @@ class PayrollController extends Controller
             'companies' => $this->companyOptions($request->user()),
             'filters' => ['company_id' => $company?->id],
             'payrolls' => Payroll::query()
-                ->select(['id', 'company_id', 'period_start', 'period_end', 'pay_date', 'status', 'finalized_at'])
+                ->select(['id', 'company_id', 'payroll_group', 'cutoff_type', 'period_start', 'period_end', 'pay_date', 'status', 'finalized_at'])
                 ->with('company:id,company_code,company_name')
                 ->withCount('items')
                 ->withSum('items', 'gross_pay')
@@ -42,81 +44,110 @@ class PayrollController extends Controller
                 ->latest('period_end')
                 ->paginate(15)
                 ->withQueryString(),
-            'can' => ['create' => $request->user()->can('create', Payroll::class)],
+            'can' => [
+                'create' => $request->user()->can('create', Payroll::class),
+                'delete' => $request->user()->can('payrolls.delete'),
+            ],
         ]);
     }
 
     public function create(Request $request): Response
     {
         Gate::authorize('create', Payroll::class);
-        $companies = $this->companyOptions($request->user());
+        $companies = $this->payrollCompanyOptions($request->user());
+        $selectedCompany = $this->selectedCompany($request, $request->user());
 
         return Inertia::render('payrolls/Create', [
             'companies' => $companies,
-            'defaultCompanyId' => $this->selectedCompany($request, $request->user())?->id ?? $companies[0]['id'] ?? null,
+            'defaultCompanyId' => $selectedCompany !== null ? $selectedCompany->id : ($companies[0]['id'] ?? null),
             'defaultMonth' => now()->format('Y-m'),
         ]);
     }
 
     public function store(StorePayrollRequest $request, PayrollCalculator $calculator): RedirectResponse
     {
-        $period = PayrollPeriod::forPayday($request->string('payroll_month')->toString(), $request->integer('payday'));
+        $payrollGroup = $request->string('payroll_group')->toString();
+        $period = PayrollPeriod::forCutoff(
+            $request->string('payroll_month')->toString(),
+            $payrollGroup,
+            $request->string('cutoff_type')->toString(),
+        );
         $company = Company::findOrFail($request->integer('company_id'));
 
-        if (Payroll::whereBelongsTo($company)->whereDate('period_start', $period['period_start'])->whereDate('period_end', $period['period_end'])->exists()) {
-            throw ValidationException::withMessages(['payroll_month' => __('A payroll already exists for this cutoff.')]);
+        if (Payroll::whereBelongsTo($company)
+            ->whereIn('payroll_group', [$payrollGroup, Payroll::GROUP_MIXED])
+            ->whereDate('period_start', $period['period_start'])
+            ->whereDate('period_end', $period['period_end'])
+            ->exists()) {
+            throw ValidationException::withMessages(['payroll_month' => __('A payroll already exists for this employee group and cutoff.')]);
         }
 
-        $payroll = DB::transaction(function () use ($company, $period, $request, $calculator): Payroll {
+        $employees = Employee::query()
+            ->whereBelongsTo($company)
+            ->active()
+            ->where('pay_frequency', Employee::PAY_FREQUENCY_SEMI_MONTHLY)
+            ->when(
+                $payrollGroup === Payroll::GROUP_CONTRACTUAL,
+                fn (Builder $query) => $query->where('employment_type', Employee::EMPLOYMENT_CONTRACTUAL),
+                fn (Builder $query) => $query->whereIn('employment_type', [Employee::EMPLOYMENT_REGULAR, Employee::EMPLOYMENT_PROBATIONARY]),
+            )
+            ->orderBy('last_name')
+            ->orderBy('first_name')
+            ->get();
+
+        if ($employees->isEmpty()) {
+            throw ValidationException::withMessages([
+                'payroll_group' => __('No active semi-monthly employees were found for the selected payroll group.'),
+            ]);
+        }
+
+        $payroll = DB::transaction(function () use ($company, $period, $request, $calculator, $payrollGroup, $employees): Payroll {
             $settings = PayrollSetting::firstOrCreate(['company_id' => $company->id], PayrollSetting::defaults());
             $payroll = Payroll::create([
                 'company_id' => $company->id,
+                'payroll_group' => $payrollGroup,
+                'cutoff_type' => $request->string('cutoff_type')->toString(),
                 'period_start' => $period['period_start'],
                 'period_end' => $period['period_end'],
                 'pay_date' => $period['pay_date'],
                 'status' => Payroll::STATUS_DRAFT,
                 'created_by' => $request->user()->id,
             ]);
-            Employee::query()
-                ->whereBelongsTo($company)
-                ->active()
-                ->where('pay_frequency', Employee::PAY_FREQUENCY_SEMI_MONTHLY)
-                ->orderBy('last_name')
-                ->orderBy('first_name')
-                ->each(function (Employee $employee) use ($payroll, $settings, $calculator): void {
-                    $values = [
-                        'monthly_basic_salary' => $employee->basic_salary,
-                        ...$settings->only(array_keys(PayrollSetting::defaults())),
-                        'days_worked' => $settings->payroll_days_basis,
-                        'absent_days' => 0,
-                        'late_hours' => 0,
-                        'regular_ot_hours' => 0,
-                        'special_holiday_hours' => 0,
-                        'special_holiday_ot_hours' => 0,
-                        'regular_holiday_hours' => 0,
-                        'regular_holiday_ot_hours' => 0,
-                        'salary_adjustment' => 0,
-                        'sss_contribution' => 0,
-                        'philhealth_contribution' => 0,
-                        'pagibig_contribution' => 0,
-                        'withholding_tax' => 0,
-                        'other_deduction' => 0,
-                        'allowance' => 0,
-                    ];
+            $employees->each(function (Employee $employee) use ($payroll, $settings, $calculator): void {
+                $values = [
+                    'monthly_basic_salary' => $employee->basic_salary,
+                    ...$settings->only(array_keys(PayrollSetting::defaults())),
+                    'days_worked' => $settings->payroll_days_basis,
+                    'absent_days' => 0,
+                    'late_hours' => 0,
+                    'regular_ot_hours' => 0,
+                    'special_holiday_hours' => 0,
+                    'special_holiday_ot_hours' => 0,
+                    'regular_holiday_hours' => 0,
+                    'regular_holiday_ot_hours' => 0,
+                    'salary_adjustment' => 0,
+                    'sss_contribution' => 0,
+                    'philhealth_contribution' => 0,
+                    'pagibig_contribution' => 0,
+                    'withholding_tax' => 0,
+                    'other_deduction' => 0,
+                    'allowance' => 0,
+                ];
 
-                    $payroll->items()->create([
-                        'employee_id' => $employee->id,
-                        'employee_number' => $employee->employee_number,
-                        'employee_name' => $employee->fullName(),
-                        'department' => $employee->department,
-                        'job_title' => $employee->job_title,
-                        'pay_frequency' => $employee->pay_frequency,
-                        'bank_name' => $employee->bank_name,
-                        'bank_account_last_four' => $employee->bank_account_number ? substr($employee->bank_account_number, -4) : null,
-                        ...$values,
-                        ...$calculator->calculate($values),
-                    ]);
-                });
+                $payroll->items()->create([
+                    'employee_id' => $employee->id,
+                    'employee_number' => $employee->employee_number,
+                    'employee_name' => $employee->fullName(),
+                    'department' => $employee->department,
+                    'job_title' => $employee->job_title,
+                    'employment_type' => $employee->employment_type,
+                    'pay_frequency' => $employee->pay_frequency,
+                    'bank_name' => $employee->bank_name,
+                    'bank_account_last_four' => $employee->bank_account_number ? substr($employee->bank_account_number, -4) : null,
+                    ...$values,
+                    ...$calculator->calculate($values),
+                ]);
+            });
 
             return $payroll;
         });
@@ -172,6 +203,19 @@ class PayrollController extends Controller
             $lockedPayroll = Payroll::query()->lockForUpdate()->findOrFail($payroll->id);
             abort_unless($lockedPayroll->isDraft(), 409);
             abort_if($lockedPayroll->items()->doesntExist(), 422, __('A payroll must contain at least one employee.'));
+
+            $lockedPayroll->items()
+                ->where('employment_type', Employee::EMPLOYMENT_CONTRACTUAL)
+                ->whereNull('voucher_no')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->each(function (PayrollItem $item) use ($lockedPayroll): void {
+                    $item->update([
+                        'voucher_no' => DocumentSequence::nextPayrollVoucherNumber($lockedPayroll->pay_date),
+                    ]);
+                });
+
             $lockedPayroll->update(['status' => Payroll::STATUS_FINALIZED, 'finalized_by' => $request->user()->id, 'finalized_at' => now()]);
         });
 
@@ -195,10 +239,51 @@ class PayrollController extends Controller
         return to_route('payrolls.show', $payroll);
     }
 
+    public function destroy(Request $request, Payroll $payroll, AuditLogger $audit): RedirectResponse
+    {
+        Gate::authorize('delete', $payroll);
+
+        $companyId = $payroll->company_id;
+        $oldValues = [
+            ...$payroll->only(['company_id', 'payroll_group', 'cutoff_type', 'period_start', 'period_end', 'pay_date', 'status']),
+            'items_count' => $payroll->items()->count(),
+        ];
+
+        $payroll->delete();
+        $audit->record('payrolls', 'deleted', $payroll, oldValues: $oldValues, request: $request);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Payroll run deleted.')]);
+
+        return to_route('payrolls.index', ['company_id' => $companyId]);
+    }
+
     /** @return array<int, array{id: int, company_code: string, company_name: string}> */
     private function companyOptions(User $user): array
     {
         return $this->companyQuery($user)->get()->map(fn (Company $company): array => $company->only(['id', 'company_code', 'company_name']))->all();
+    }
+
+    /** @return array<int, array{id: int, company_code: string, company_name: string, regular_payroll_employees_count: int, contractual_payroll_employees_count: int}> */
+    private function payrollCompanyOptions(User $user): array
+    {
+        return $this->companyQuery($user)
+            ->withCount([
+                'employees as regular_payroll_employees_count' => fn (Builder $query) => $query
+                    ->where('status', Employee::STATUS_ACTIVE)
+                    ->where('pay_frequency', Employee::PAY_FREQUENCY_SEMI_MONTHLY)
+                    ->whereIn('employment_type', [Employee::EMPLOYMENT_REGULAR, Employee::EMPLOYMENT_PROBATIONARY]),
+                'employees as contractual_payroll_employees_count' => fn (Builder $query) => $query
+                    ->where('status', Employee::STATUS_ACTIVE)
+                    ->where('pay_frequency', Employee::PAY_FREQUENCY_SEMI_MONTHLY)
+                    ->where('employment_type', Employee::EMPLOYMENT_CONTRACTUAL),
+            ])
+            ->get()
+            ->map(fn (Company $company): array => [
+                ...$company->only(['id', 'company_code', 'company_name']),
+                'regular_payroll_employees_count' => (int) $company->getAttribute('regular_payroll_employees_count'),
+                'contractual_payroll_employees_count' => (int) $company->getAttribute('contractual_payroll_employees_count'),
+            ])
+            ->all();
     }
 
     /** @return Builder<Company> */

@@ -2,11 +2,14 @@
 
 namespace App\Support;
 
+use App\Models\Employee;
 use App\Models\Payroll;
 use App\Models\PayrollItem;
 
 class PayrollPayslipPdfRenderer
 {
+    public function __construct(private readonly PayrollVoucherBreakdown $voucherBreakdown) {}
+
     public function render(PayrollItem $item): string
     {
         return $this->renderItems(
@@ -41,6 +44,12 @@ class PayrollPayslipPdfRenderer
             $company = $payroll->company;
             $scheduledWeekdays = PayrollPeriod::weekdays($payroll->period_start->toImmutable(), $payroll->period_end->toImmutable());
             $pdf->AddPage();
+
+            if ($item->employment_type === Employee::EMPLOYMENT_CONTRACTUAL) {
+                $this->renderContractualVoucher($pdf, $item);
+
+                continue;
+            }
 
             $pdf->SetFont('helvetica', 'B', 15);
             $pdf->Cell(0, 7, $this->text($company->company_name), 0, 1, 'C');
@@ -92,7 +101,7 @@ class PayrollPayslipPdfRenderer
 
             for ($index = 0; $index < max(count($earnings), count($deductions)); $index++) {
                 $earning = $earnings[$index] ?? ['', null];
-                $deduction = $deductions[$index] ?? ['', null];
+                $deduction = $deductions[$index];
                 $this->moneyRow($pdf, $earning[0], $earning[1], $deduction[0], $deduction[1]);
             }
 
@@ -116,6 +125,103 @@ class PayrollPayslipPdfRenderer
         }
 
         return $pdf->Output($filename, 'S');
+    }
+
+    private function renderContractualVoucher(PdfCanvas $pdf, PayrollItem $item): void
+    {
+        $this->renderContractualVoucherCopy($pdf, $item, 10, 'EMPLOYEE COPY');
+        $this->cutLine($pdf, 148.5);
+        $this->renderContractualVoucherCopy($pdf, $item, 155, 'COMPANY COPY');
+    }
+
+    private function renderContractualVoucherCopy(PdfCanvas $pdf, PayrollItem $item, float $top, string $copyLabel): void
+    {
+        $payroll = $item->payroll;
+        $company = $payroll->company;
+        $left = 15;
+        $width = 180;
+
+        $pdf->SetXY($left, $top);
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->Cell(105, 6, $this->text($company->company_name));
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(30, 6, 'Voucher No.:', 0, 0, 'R');
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->Cell(45, 6, $this->text($item->voucher_no ?: 'DRAFT'), 'B', 1, 'C');
+
+        $pdf->SetXY($left, $top + 6);
+        $pdf->SetFont('helvetica', 'I', 6);
+        $pdf->Cell($width, 4, $copyLabel, 0, 1, 'R');
+
+        $pdf->SetXY($left, $top + 13);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(35, 7, 'Transaction Type:', 1, 0, 'R');
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(70, 7, 'Professional Fee', 1);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(25, 7, 'Pay Date:', 1, 0, 'R');
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(50, 7, $payroll->pay_date->format('M d, Y'), 1, 1);
+
+        $pdf->SetX($left);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(35, 7, 'Payee:', 1, 0, 'R');
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(145, 7, $this->text(mb_strtoupper($item->employee_name)), 1, 1);
+
+        $pdf->SetX($left);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(35, 7, 'Payroll Cutoff:', 1, 0, 'R');
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(145, 7, $payroll->period_start->format('M d').' - '.$payroll->period_end->format('M d, Y'), 1, 1);
+
+        $pdf->SetX($left);
+        $pdf->SetFillColor(240, 242, 245);
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(125, 6, 'Gross Pay', 1, 0, 'L', true);
+        $pdf->Cell(55, 6, $this->money($item->gross_pay), 1, 1, 'R', true);
+
+        $deductions = $this->voucherBreakdown->deductions($item);
+
+        foreach ($deductions as $index => $deduction) {
+            $pdf->SetX($left);
+            $pdf->SetFont('helvetica', '', 7);
+            $label = $index === 0 ? 'Less: '.$deduction['label'] : $deduction['label'];
+            $pdf->Cell(125, 5, $this->text($label), 1);
+            $pdf->Cell(55, 5, $this->money($deduction['amount']), 1, 1, 'R');
+        }
+
+        if ($deductions !== []) {
+            $pdf->SetX($left);
+            $pdf->SetFont('helvetica', 'B', 8);
+            $pdf->Cell(125, 5, 'Total Deductions', 1);
+            $pdf->Cell(55, 5, $this->money($item->total_deductions), 1, 1, 'R');
+        }
+
+        $pdf->SetX($left);
+        $pdf->SetFillColor(226, 244, 234);
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->Cell(125, 7, 'NET PAY', 1, 0, 'R', true);
+        $pdf->Cell(55, 7, $this->money($item->net_pay), 1, 1, 'R', true);
+
+        $acknowledgmentY = $top + 108;
+        $pdf->SetXY($left + 5, $acknowledgmentY);
+        $pdf->SetFont('helvetica', '', 6);
+        $pdf->Cell(115, 5, 'I acknowledge receipt of the net amount of '.$this->money($item->net_pay).'.');
+
+        $pdf->SetXY($left + 125, $acknowledgmentY);
+        $pdf->SetFont('helvetica', 'I', 6);
+        $pdf->Cell(50, 5, $this->text(mb_strtoupper($item->employee_name)), 'B', 1, 'C');
+        $pdf->SetX($left + 125);
+        $pdf->SetFont('helvetica', '', 5);
+        $pdf->Cell(50, 4, 'Signature and Date', 0, 1, 'C');
+    }
+
+    private function cutLine(PdfCanvas $pdf, float $y): void
+    {
+        for ($x = 10; $x < 200; $x += 5) {
+            $pdf->Line($x, $y, min($x + 3, 200), $y);
+        }
     }
 
     private function pair(PdfCanvas $pdf, string $leftLabel, string $leftValue, string $rightLabel, string $rightValue, bool $border = false): void

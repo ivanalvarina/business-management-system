@@ -52,6 +52,14 @@ class DocumentSequence extends Model
         return sprintf('RR-%d-%06d', $year, $number);
     }
 
+    public static function nextPayrollVoucherNumber(Carbon|string $payDate): string
+    {
+        $year = Carbon::parse($payDate)->year;
+        $number = self::nextNumber('PV', $year);
+
+        return sprintf('%02d%03d', $year % 100, $number);
+    }
+
     private static function nextNumber(string $series, int $year): int
     {
         return DB::transaction(function () use ($series, $year): int {

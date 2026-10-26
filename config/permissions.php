@@ -27,6 +27,7 @@ return [
         'payrolls.view',
         'payrolls.create',
         'payrolls.edit',
+        'payrolls.delete',
         'payrolls.finalize',
         'payrolls.reopen',
         'payrolls.export',

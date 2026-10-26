@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Payroll;
 use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 
@@ -10,30 +11,38 @@ class PayrollPeriod
     /**
      * @return array{period_start: CarbonImmutable, period_end: CarbonImmutable, pay_date: CarbonImmutable}
      */
-    public static function forPayday(string $payrollMonth, int $payday): array
+    public static function forCutoff(string $payrollMonth, string $payrollGroup, string $cutoffType): array
     {
-        if (! in_array($payday, [10, 25], true)) {
-            throw new InvalidArgumentException('Payday must be 10 or 25.');
+        if (! in_array($payrollGroup, Payroll::creatableGroups(), true)) {
+            throw new InvalidArgumentException('Payroll group must be regular or contractual.');
+        }
+
+        if (! in_array($cutoffType, Payroll::cutoffTypes(), true)) {
+            throw new InvalidArgumentException('Cutoff type must be first_half or second_half.');
         }
 
         $month = CarbonImmutable::createFromFormat('!Y-m', $payrollMonth);
 
-        if ($month === false || $month->format('Y-m') !== $payrollMonth) {
+        if ($month === null || $month->format('Y-m') !== $payrollMonth) {
             throw new InvalidArgumentException('Payroll month must use YYYY-MM format.');
         }
 
-        if ($payday === 25) {
-            return [
-                'period_start' => $month->startOfMonth(),
-                'period_end' => $month->day(15),
-                'pay_date' => $month->day(25),
-            ];
-        }
+        $isFirstHalf = $cutoffType === Payroll::CUTOFF_FIRST_HALF;
+        $periodStart = $isFirstHalf ? $month->startOfMonth() : $month->day(16);
+        $periodEnd = $isFirstHalf ? $month->day(15) : $month->endOfMonth();
+
+        $scheduledPayDate = match ([$payrollGroup, $cutoffType]) {
+            [Payroll::GROUP_REGULAR, Payroll::CUTOFF_FIRST_HALF] => $month->day(25),
+            [Payroll::GROUP_REGULAR, Payroll::CUTOFF_SECOND_HALF] => $month->addMonthNoOverflow()->day(10),
+            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF] => $month->day(15),
+            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF] => $month->endOfMonth(),
+            default => throw new InvalidArgumentException('Unsupported payroll schedule.'),
+        };
 
         return [
-            'period_start' => $month->day(16),
-            'period_end' => $month->endOfMonth(),
-            'pay_date' => $month->addMonthNoOverflow()->day(10),
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'pay_date' => self::previousWeekday($scheduledPayDate),
         ];
     }
 
@@ -48,5 +57,14 @@ class PayrollPeriod
         }
 
         return $count;
+    }
+
+    private static function previousWeekday(CarbonImmutable $date): CarbonImmutable
+    {
+        while ($date->isWeekend()) {
+            $date = $date->subDay();
+        }
+
+        return $date;
     }
 }

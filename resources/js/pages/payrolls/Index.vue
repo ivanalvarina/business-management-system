@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Eye, Plus, WalletCards } from '@lucide/vue';
+import { Eye, Plus, Trash2, WalletCards } from '@lucide/vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
-import { create, index, show } from '@/routes/payrolls';
+import { create, destroy, index, show } from '@/routes/payrolls';
 
 type Company = { id: number; company_code: string; company_name: string };
 type Payroll = {
     id: number;
     company: Company;
+    payroll_group: 'regular' | 'contractual' | 'mixed';
     period_start: string;
     period_end: string;
     pay_date: string;
@@ -24,7 +25,7 @@ const props = defineProps<{
     companies: Company[];
     filters: { company_id: number | null };
     payrolls: { data: Payroll[]; total: number };
-    can: { create: boolean };
+    can: { create: boolean; delete: boolean };
 }>();
 
 defineOptions({
@@ -47,6 +48,26 @@ const money = (value: string | null) =>
         style: 'currency',
         currency: 'PHP',
     });
+const payrollGroup = (value: Payroll['payroll_group']) =>
+    value === 'contractual'
+        ? 'Contractual'
+        : value === 'mixed'
+          ? 'Mixed (historical)'
+          : 'Regular';
+
+const deletePayroll = (payroll: Payroll) => {
+    if (
+        !window.confirm(
+            `Delete the ${date(payroll.period_start)} – ${date(payroll.period_end)} payroll run? All employee payroll entries in this run will be permanently deleted.`,
+        )
+    ) {
+        return;
+    }
+
+    router.visit(destroy(payroll.id), {
+        preserveScroll: true,
+    });
+};
 </script>
 
 <template>
@@ -88,6 +109,9 @@ const money = (value: string | null) =>
                     >
                         <tr>
                             <th class="px-4 py-3 font-medium">Cutoff</th>
+                            <th class="px-4 py-3 font-medium">
+                                Employee group
+                            </th>
                             <th class="px-4 py-3 font-medium">Pay date</th>
                             <th class="px-4 py-3 text-right font-medium">
                                 Employees
@@ -99,7 +123,7 @@ const money = (value: string | null) =>
                                 Net
                             </th>
                             <th class="px-4 py-3 font-medium">Status</th>
-                            <th class="w-14 px-4 py-3"></th>
+                            <th class="w-24 px-4 py-3"></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -111,6 +135,9 @@ const money = (value: string | null) =>
                             <td class="px-4 py-3 font-medium">
                                 {{ date(payroll.period_start) }} –
                                 {{ date(payroll.period_end) }}
+                            </td>
+                            <td class="px-4 py-3">
+                                {{ payrollGroup(payroll.payroll_group) }}
                             </td>
                             <td class="px-4 py-3">
                                 {{ date(payroll.pay_date) }}
@@ -137,12 +164,33 @@ const money = (value: string | null) =>
                                 >
                             </td>
                             <td class="px-4 py-3">
-                                <Button variant="ghost" size="icon" as-child
-                                    ><Link
-                                        :href="show(payroll.id)"
-                                        aria-label="Open payroll"
-                                        ><Eye /></Link
-                                ></Button>
+                                <div class="flex justify-end gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        as-child
+                                    >
+                                        <Link
+                                            :href="show(payroll.id)"
+                                            aria-label="Open payroll"
+                                        >
+                                            <Eye />
+                                        </Link>
+                                    </Button>
+                                    <Button
+                                        v-if="
+                                            can.delete &&
+                                            payroll.status === 'draft'
+                                        "
+                                        variant="ghost"
+                                        size="icon"
+                                        class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        aria-label="Delete payroll run"
+                                        @click="deletePayroll(payroll)"
+                                    >
+                                        <Trash2 />
+                                    </Button>
+                                </div>
                             </td>
                         </tr>
                     </tbody>
