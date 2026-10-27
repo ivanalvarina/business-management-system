@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
     Download,
@@ -27,7 +27,7 @@ import {
     bulk as payslipBulk,
     show as payslipShow,
 } from '@/routes/payrolls/payslips';
-
+ 
 type PayrollItem = {
     id: number;
     employee_number: string;
@@ -72,7 +72,7 @@ type Payroll = {
     status: 'draft' | 'finalized';
     items: PayrollItem[];
 };
-
+ 
 const props = defineProps<{
     payroll: Payroll;
     weekdayCount: number;
@@ -100,7 +100,7 @@ defineOptions({
         ],
     },
 });
-
+ 
 const inputFields = [
     'days_worked',
     'absent_days',
@@ -129,7 +129,7 @@ const form = useForm<{ items: FormItem[] }>({
             }) as FormItem,
     ),
 });
-
+ 
 const payrollViews = [
     { value: 'summary', label: 'Summary' },
     { value: 'attendance', label: 'Attendance & OT' },
@@ -137,44 +137,13 @@ const payrollViews = [
     { value: 'deductions', label: 'Deductions' },
 ] as const;
 type PayrollView = (typeof payrollViews)[number]['value'];
-
+ 
 const payrollViewStorageKey = 'payroll-table-views';
 const activeViews = ref<PayrollView[]>(['summary']);
 const isViewActive = (view: PayrollView) => activeViews.value.includes(view);
-const showColumns = (...views: PayrollView[]) =>
-    views.some((view) => isViewActive(view));
 const areAllViewsActive = computed(() =>
     payrollViews.every((view) => isViewActive(view.value)),
 );
-const tableMinimumWidth = computed(() => {
-    let width = 416;
-
-    if (showColumns('summary', 'earnings')) {
-        width += 256;
-    }
-
-    if (showColumns('attendance')) {
-        width += 288;
-    }
-
-    if (showColumns('attendance', 'earnings')) {
-        width += 288;
-    }
-
-    if (showColumns('earnings')) {
-        width += 224;
-    }
-
-    if (showColumns('deductions')) {
-        width += 560;
-    }
-
-    if (showColumns('summary', 'deductions')) {
-        width += 128;
-    }
-
-    return `${Math.max(width, 800)}px`;
-});
 const toggleView = (view: PayrollView) => {
     if (isViewActive(view)) {
         if (activeViews.value.length > 1) {
@@ -182,36 +151,36 @@ const toggleView = (view: PayrollView) => {
                 (activeView) => activeView !== view,
             );
         }
-
+ 
         return;
     }
-
+ 
     activeViews.value = [...activeViews.value, view];
 };
 const selectAllViews = () => {
     activeViews.value = payrollViews.map((view) => view.value);
 };
-
+ 
 onMounted(() => {
     const savedViews = window.localStorage.getItem(payrollViewStorageKey);
-
+ 
     if (!savedViews) {
         return;
     }
-
+ 
     try {
         const parsedViews = JSON.parse(savedViews) as unknown;
-
+ 
         if (!Array.isArray(parsedViews)) {
             return;
         }
-
+ 
         const validViews = parsedViews.filter(
             (view): view is PayrollView =>
                 typeof view === 'string' &&
                 payrollViews.some((option) => option.value === view),
         );
-
+ 
         if (validViews.length > 0) {
             activeViews.value = [...new Set(validViews)];
         }
@@ -219,49 +188,85 @@ onMounted(() => {
         window.localStorage.removeItem(payrollViewStorageKey);
     }
 });
-
+ 
 watch(activeViews, (views) => {
     window.localStorage.setItem(payrollViewStorageKey, JSON.stringify(views));
 });
-
+ 
 const amount = (value: string | number) => Number(value || 0);
 const calculate = (item: PayrollItem, values: FormItem) => {
+    // Basic salary
+    const monthlyBasic = amount(item.monthly_basic_salary);
+    const basic = monthlyBasic / 2;
+ 
+    // Allowance
+    const allowance = amount(values.allowance);
+    const monthlyAllowance = allowance * 2;
+ 
+    // Payroll divisors
+    const monthlyDivisor = amount(item.monthly_workdays_divisor);
+    const payrollDaysBasis = amount(item.payroll_days_basis);
+    const hoursPerDay = amount(item.hours_per_day);
+ 
+    // Daily and hourly rates (including allowance)
     const daily =
-        amount(item.monthly_basic_salary) /
-        amount(item.monthly_workdays_divisor);
-    const hourly = daily / amount(item.hours_per_day);
-    const basic = amount(item.monthly_basic_salary) / 2;
+        monthlyDivisor > 0
+            ? (monthlyBasic + monthlyAllowance) / monthlyDivisor
+            : 0;
+ 
+    const hourly = hoursPerDay > 0 ? daily / hoursPerDay : 0;
+ 
+    // Overtime pay
     const regularOt =
         hourly *
         amount(values.regular_ot_hours) *
         amount(item.regular_ot_multiplier);
+ 
     const holiday130 =
         hourly *
         amount(values.special_holiday_hours) *
         amount(item.special_holiday_multiplier);
+ 
     const holiday200 =
         hourly *
         amount(values.regular_holiday_hours) *
         amount(item.regular_holiday_multiplier);
+ 
+    // Attendance deductions
+    const lateDeduction = hourly * amount(values.late_hours);
+    const absenceDeduction = daily * amount(values.absent_days);
+ 
+    // Salary adjustments
+    const salaryAdjustment = amount(values.salary_adjustment);
+ 
+    // Gross pay (including allowance)
     const gross =
         basic +
+        allowance +
         regularOt +
         holiday130 +
         holiday200 +
-        amount(values.salary_adjustment) +
-        amount(values.allowance);
-    const lateDeduction = hourly * amount(values.late_hours);
-    const absenceDeduction = daily * amount(values.absent_days);
-    const deductions =
-        lateDeduction +
-        absenceDeduction +
+        salaryAdjustment;
+ 
+    // Government and other deductions
+    const governmentDeductions =
         amount(values.sss_contribution) +
         amount(values.philhealth_contribution) +
         amount(values.pagibig_contribution) +
         amount(values.withholding_tax) +
         amount(values.other_deduction);
+ 
+    const deductions = lateDeduction + absenceDeduction + governmentDeductions;
+ 
+    // Net pay
+    const net = gross - deductions;
+ 
     return {
         basic,
+        allowance,
+        daily,
+        hourly,
+        payrollDaysBasis,
         regularOt,
         holiday130,
         holiday200,
@@ -269,9 +274,11 @@ const calculate = (item: PayrollItem, values: FormItem) => {
         absenceDeduction,
         gross,
         deductions,
-        net: gross - deductions,
+        net,
     };
 };
+type CalcResult = ReturnType<typeof calculate>;
+ 
 const results = computed(() =>
     props.payroll.items.map((item, indexValue) =>
         calculate(item, form.items[indexValue]),
@@ -290,15 +297,229 @@ const totals = computed(() =>
 const payrollDaysBasis = computed(() =>
     amount(props.payroll.items[0]?.payroll_days_basis ?? 13),
 );
-const monthlyWorkdaysDivisor = computed(() =>
-    amount(props.payroll.items[0]?.monthly_workdays_divisor ?? 26),
-);
 const money = (value: number) =>
     value.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' });
 const date = (value: string) =>
     new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString('en-PH', {
         dateStyle: 'medium',
     });
+ 
+/**
+ * Table columns.
+ * - `w` is the exact pixel width (used by <colgroup>, so header and body
+ *   can never drift apart).
+ * - `views` = which view buttons show the column. No `views` = always shown.
+ * - kind 'input'   -> editable field (+ optional computed `sub` amount below it)
+ * - kind 'calc'    -> read-only computed amount
+ * - kind 'payslip' -> PDF button
+ */
+type Column = {
+    id: string;
+    label: string;
+    w: number;
+    views?: PayrollView[];
+    kind: 'input' | 'calc' | 'payslip';
+    field?: InputField;
+    calc?: keyof CalcResult;
+    sub?: keyof CalcResult;
+    subTone?: 'muted' | 'destructive';
+    tone?: 'default' | 'destructive';
+    bold?: boolean;
+    allowNegative?: boolean;
+};
+ 
+const columns: Column[] = [
+    { id: 'payslip', label: 'Payslip', w: 144, kind: 'payslip' },
+    {
+        id: 'days_worked',
+        label: 'Worked',
+        w: 96,
+        views: ['attendance'],
+        kind: 'input',
+        field: 'days_worked',
+    },
+    {
+        id: 'basic',
+        label: 'Basic Pay',
+        w: 104,
+        views: ['summary', 'earnings'],
+        kind: 'calc',
+        calc: 'basic',
+        bold: true,
+    },
+    {
+        id: 'regular_ot',
+        label: 'OT Pay',
+        w: 96,
+        views: ['attendance', 'earnings'],
+        kind: 'input',
+        field: 'regular_ot_hours',
+        sub: 'regularOt',
+        subTone: 'muted',
+    },
+    {
+        id: 'ot130',
+        label: '130% OT',
+        w: 96,
+        views: ['attendance', 'earnings'],
+        kind: 'input',
+        field: 'special_holiday_hours',
+        sub: 'holiday130',
+        subTone: 'muted',
+    },
+    {
+        id: 'ot200',
+        label: '200% OT',
+        w: 96,
+        views: ['attendance', 'earnings'],
+        kind: 'input',
+        field: 'regular_holiday_hours',
+        sub: 'holiday200',
+        subTone: 'muted',
+    },
+    {
+        id: 'late',
+        label: 'Late',
+        w: 96,
+        views: ['attendance'],
+        kind: 'input',
+        field: 'late_hours',
+        sub: 'lateDeduction',
+        subTone: 'destructive',
+    },
+    {
+        id: 'absent',
+        label: 'Absent',
+        w: 96,
+        views: ['attendance'],
+        kind: 'input',
+        field: 'absent_days',
+        sub: 'absenceDeduction',
+        subTone: 'destructive',
+    },
+    {
+        id: 'salary_adjustment',
+        label: 'Sal. Adjustment',
+        w: 112,
+        views: ['earnings'],
+        kind: 'input',
+        field: 'salary_adjustment',
+        allowNegative: true,
+    },
+    {
+        id: 'allowance',
+        label: 'Allowance',
+        w: 112,
+        views: ['earnings'],
+        kind: 'input',
+        field: 'allowance',
+    },
+    {
+        id: 'gross',
+        label: 'Gross Pay',
+        w: 112,
+        views: ['summary', 'earnings'],
+        kind: 'calc',
+        calc: 'gross',
+        bold: true,
+    },
+    {
+        id: 'sss',
+        label: 'SSS',
+        w: 112,
+        views: ['deductions'],
+        kind: 'input',
+        field: 'sss_contribution',
+    },
+    {
+        id: 'philhealth',
+        label: 'PhilHealth',
+        w: 112,
+        views: ['deductions'],
+        kind: 'input',
+        field: 'philhealth_contribution',
+    },
+    {
+        id: 'pagibig',
+        label: 'Pag-IBIG',
+        w: 112,
+        views: ['deductions'],
+        kind: 'input',
+        field: 'pagibig_contribution',
+    },
+    {
+        id: 'wtax',
+        label: 'W/Tax',
+        w: 112,
+        views: ['deductions'],
+        kind: 'input',
+        field: 'withholding_tax',
+    },
+    {
+        id: 'other',
+        label: 'Deduction',
+        w: 112,
+        views: ['deductions'],
+        kind: 'input',
+        field: 'other_deduction',
+    },
+    {
+        id: 'total_ded',
+        label: 'Total Deductions',
+        w: 112,
+        views: ['summary', 'deductions'],
+        kind: 'calc',
+        calc: 'deductions',
+        tone: 'destructive',
+        bold: true,
+    },
+    {
+        id: 'net',
+        label: 'Net Pay',
+        w: 120,
+        kind: 'calc',
+        calc: 'net',
+        bold: true,
+    },
+];
+ 
+const EMPLOYEE_COLUMN_WIDTH = 192;
+ 
+const visibleColumns = computed(() =>
+    columns.filter(
+        (column) =>
+            !column.views || column.views.some((view) => isViewActive(view)),
+    ),
+);
+const tableWidth = computed(
+    () =>
+        `${visibleColumns.value.reduce((sum, column) => sum + column.w, EMPLOYEE_COLUMN_WIDTH)}px`,
+);
+ 
+const maxFor = (column: Column) => {
+    if (column.field === 'days_worked') {
+        return payrollDaysBasis.value;
+    }
+ 
+    if (column.field === 'absent_days') {
+        return props.weekdayCount;
+    }
+ 
+    return undefined;
+};
+const errorFor = (rowIndex: number, column: Column) =>
+    column.field
+        ? form.errors[`items.${rowIndex}.${column.field}` as keyof typeof form.errors]
+        : undefined;
+const subClass = (column: Column) =>
+    column.subTone === 'destructive'
+        ? 'text-destructive'
+        : 'text-muted-foreground';
+const calcClass = (column: Column) => [
+    column.bold ? 'font-semibold' : 'font-medium',
+    column.tone === 'destructive' ? 'text-destructive' : '',
+];
+ 
 const save = () =>
     form.put(update.url(props.payroll.id), {
         preserveScroll: true,
@@ -313,7 +534,7 @@ const reopenPayroll = () => {
         router.patch(reopen.url(props.payroll.id));
 };
 </script>
-
+ 
 <template>
     <Head :title="`Payroll ${date(payroll.pay_date)}`" />
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
@@ -393,7 +614,7 @@ const reopenPayroll = () => {
                 >
             </template>
         </PageHeader>
-
+ 
         <div class="grid gap-3 sm:grid-cols-3">
             <div class="rounded-xl border bg-card p-4">
                 <p class="text-xs text-muted-foreground">Gross payroll</p>
@@ -414,18 +635,9 @@ const reopenPayroll = () => {
                 </p>
             </div>
         </div>
-
-        <!-- <div
-            class="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground"
-        >
-            Payroll basis: {{ payrollDaysBasis }} days (monthly divisor:
-            {{ monthlyWorkdaysDivisor }}). Worked defaults to the 13-day payroll
-            basis; absences are limited to {{ weekdayCount }} actual
-            Monday–Friday workdays in this cutoff. Regular OT is 125%; holiday
-            columns use 130% OT and 200% OT.
-        </div> -->
+ 
         <InputError :message="form.errors.items" />
-
+ 
         <form @submit.prevent="save">
             <div
                 class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2"
@@ -454,134 +666,53 @@ const reopenPayroll = () => {
                     All
                 </Button>
             </div>
+ 
             <div class="overflow-hidden rounded-xl border bg-card">
                 <div class="overflow-x-auto">
                     <table
-                        class="w-full table-fixed text-xs"
-                        :style="{ minWidth: tableMinimumWidth }"
+                        class="table-fixed text-xs"
+                        :style="{ width: tableWidth, minWidth: '100%' }"
                     >
+                        <colgroup>
+                            <col :style="{ width: `${EMPLOYEE_COLUMN_WIDTH}px` }" />
+                            <col
+                                v-for="column in visibleColumns"
+                                :key="column.id"
+                                :style="{ width: `${column.w}px` }"
+                            />
+                        </colgroup>
+ 
                         <thead
-                            class="border-b bg-muted/40 text-left text-xs text-muted-foreground"
+                            class="border-b bg-muted text-xs text-muted-foreground"
                         >
                             <tr>
                                 <th
-                                    class="sticky left-0 z-10 w-48 bg-muted px-2 py-2 font-medium"
+                                    class="sticky left-0 z-10 bg-muted px-2 py-3 text-left font-medium"
                                 >
                                     Employee
                                 </th>
                                 <th
-                                    v-if="showColumns('attendance')"
-                                    class="w-24 px-2 py-3 font-medium"
+                                    v-for="column in visibleColumns"
+                                    :key="column.id"
+                                    class="px-2 py-3 font-medium whitespace-nowrap"
+                                    :class="
+                                        column.kind === 'payslip'
+                                            ? 'text-left'
+                                            : 'text-right'
+                                    "
                                 >
-                                    Worked
+                                    {{ column.label }}
                                 </th>
-                                <th
-                                    v-if="showColumns('summary', 'earnings')"
-                                    class="w-32 px-3 py-3 text-right font-medium"
-                                >
-                                    Basic Pay
-                                </th>
-                                <th
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="w-24 px-2 py-3 font-medium"
-                                >
-                                    OT Pay
-                                </th>
-                                <th
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="w-24 px-2 py-3 font-medium"
-                                >
-                                    130% OT
-                                </th>
-                                <th
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="w-24 px-2 py-3 font-medium"
-                                >
-                                    200% OT
-                                </th>
-                                <th
-                                    v-if="showColumns('attendance')"
-                                    class="w-24 px-2 py-3 font-medium"
-                                >
-                                    Late
-                                </th>
-                                <th
-                                    v-if="showColumns('attendance')"
-                                    class="w-24 px-2 py-3 font-medium"
-                                >
-                                    Absent
-                                </th>
-                                <th
-                                    v-if="showColumns('earnings')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    Sal. Adj.
-                                </th>
-                                <th
-                                    v-if="showColumns('summary', 'earnings')"
-                                    class="w-32 px-3 py-3 text-right font-medium"
-                                >
-                                    Gross
-                                </th>
-                                <th
-                                    v-if="showColumns('deductions')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    SSS
-                                </th>
-                                <th
-                                    v-if="showColumns('deductions')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    PhilHealth
-                                </th>
-                                <th
-                                    v-if="showColumns('deductions')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    Pag-IBIG
-                                </th>
-                                <th
-                                    v-if="showColumns('deductions')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    W/Tax
-                                </th>
-                                <th
-                                    v-if="showColumns('deductions')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    Deduction
-                                </th>
-                                <th
-                                    v-if="showColumns('earnings')"
-                                    class="w-28 px-2 py-3 font-medium"
-                                >
-                                    Allowance
-                                </th>
-                                <th
-                                    v-if="showColumns('summary', 'deductions')"
-                                    class="w-32 px-3 py-3 text-right font-medium"
-                                >
-                                    Total Ded.
-                                </th>
-                                <th
-                                    class="w-32 px-3 py-3 text-right font-medium"
-                                >
-                                    Net Pay
-                                </th>
-                                <th class="w-24 px-3 py-3">Payslip</th>
                             </tr>
                         </thead>
+ 
                         <tbody class="divide-y">
                             <tr
                                 v-for="(item, rowIndex) in payroll.items"
                                 :key="item.id"
                                 class="align-top hover:bg-muted/20"
                             >
-                                <td
-                                    class="sticky left-0 z-10 w-48 bg-card px-2 py-2"
-                                >
+                                <td class="sticky left-0 z-10 bg-card px-2 py-2">
                                     <p class="truncate text-sm font-medium">
                                         {{ item.employee_name }}
                                     </p>
@@ -592,310 +723,102 @@ const reopenPayroll = () => {
                                         {{ item.job_title }}
                                     </p>
                                 </td>
+ 
                                 <td
-                                    v-if="showColumns('attendance')"
+                                    v-for="column in visibleColumns"
+                                    :key="column.id"
                                     class="px-2 py-2"
+                                    :class="
+                                        column.kind === 'calc'
+                                            ? 'py-3 text-right tabular-nums'
+                                            : ''
+                                    "
                                 >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex].days_worked
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :max="payrollDaysBasis"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <InputError
-                                        :message="
-                                            form.errors[
-                                                `items.${rowIndex}.days_worked`
-                                            ]
-                                        "
-                                        class="w-28 text-xs"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('summary', 'earnings')"
-                                    class="px-3 py-3 text-right font-medium tabular-nums"
-                                >
-                                    {{ money(results[rowIndex].basic) }}
-                                </td>
-                                <td
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .regular_ot_hours
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <p
-                                        class="mt-1 text-right text-xs text-muted-foreground"
-                                    >
-                                        {{ money(results[rowIndex].regularOt) }}
-                                    </p>
-                                </td>
-                                <td
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .special_holiday_hours
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <p
-                                        class="mt-1 text-right text-xs text-muted-foreground"
-                                    >
-                                        {{
-                                            money(results[rowIndex].holiday130)
-                                        }}
-                                    </p>
-                                </td>
-                                <td
-                                    v-if="showColumns('attendance', 'earnings')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .regular_holiday_hours
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <p
-                                        class="mt-1 text-right text-xs text-muted-foreground"
-                                    >
-                                        {{
-                                            money(results[rowIndex].holiday200)
-                                        }}
-                                    </p>
-                                </td>
-                                <td
-                                    v-if="showColumns('attendance')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex].late_hours
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <p
-                                        class="mt-1 text-right text-xs text-destructive"
-                                    >
-                                        {{
-                                            money(
-                                                results[rowIndex].lateDeduction,
-                                            )
-                                        }}
-                                    </p>
-                                </td>
-                                <td
-                                    v-if="showColumns('attendance')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex].absent_days
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :max="weekdayCount"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                    <p
-                                        class="mt-1 text-right text-xs text-destructive"
-                                    >
-                                        {{
-                                            money(
-                                                results[rowIndex]
-                                                    .absenceDeduction,
-                                            )
-                                        }}
-                                    </p>
-                                    <InputError
-                                        :message="
-                                            form.errors[
-                                                `items.${rowIndex}.absent_days`
-                                            ]
-                                        "
-                                        class="w-28 text-xs"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('earnings')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .salary_adjustment
-                                        "
-                                        type="number"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('summary', 'earnings')"
-                                    class="px-3 py-3 text-right font-semibold tabular-nums"
-                                >
-                                    {{ money(results[rowIndex].gross) }}
-                                </td>
-                                <td
-                                    v-if="showColumns('deductions')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .sss_contribution
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('deductions')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .philhealth_contribution
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('deductions')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex]
-                                                .pagibig_contribution
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('deductions')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex].withholding_tax
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('deductions')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="
-                                            form.items[rowIndex].other_deduction
-                                        "
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('earnings')"
-                                    class="px-2 py-2"
-                                >
-                                    <Input
-                                        v-model="form.items[rowIndex].allowance"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        :disabled="!can.edit"
-                                        class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
-                                    />
-                                </td>
-                                <td
-                                    v-if="showColumns('summary', 'deductions')"
-                                    class="px-3 py-3 text-right font-semibold text-destructive tabular-nums"
-                                >
-                                    {{ money(results[rowIndex].deductions) }}
-                                </td>
-                                <td
-                                    class="px-3 py-3 text-right font-semibold tabular-nums"
-                                >
-                                    {{ money(results[rowIndex].net) }}
-                                </td>
-                                <td class="px-3 py-2">
-                                    <Button
-                                        v-if="
-                                            can.viewPayslip || can.printPayslip
-                                        "
-                                        variant="outline"
-                                        size="sm"
-                                        as-child
-                                        ><a
-                                            :href="
-                                                payslipShow.url({
-                                                    payroll: payroll.id,
-                                                    payrollItem: item.id,
-                                                })
+                                    <!-- Payslip button -->
+                                    <template v-if="column.kind === 'payslip'">
+                                        <Button
+                                            v-if="
+                                                can.viewPayslip ||
+                                                can.printPayslip
                                             "
-                                            target="_blank"
-                                            rel="noopener"
-                                            ><FileText />
-                                            {{
-                                                item.employment_type ===
-                                                'contractual'
-                                                    ? 'Voucher PDF'
-                                                    : 'Payslip PDF'
-                                            }}</a
-                                        ></Button
+                                            variant="outline"
+                                            size="sm"
+                                            class="h-7 px-2 text-xs"
+                                            as-child
+                                        >
+                                            <a
+                                                :href="
+                                                    payslipShow.url({
+                                                        payroll: payroll.id,
+                                                        payrollItem: item.id,
+                                                    })
+                                                "
+                                                target="_blank"
+                                                rel="noopener"
+                                            >
+                                                <FileText />
+                                                {{
+                                                    item.employment_type ===
+                                                    'contractual'
+                                                        ? 'Voucher PDF'
+                                                        : 'Payslip PDF'
+                                                }}
+                                            </a>
+                                        </Button>
+                                    </template>
+ 
+                                    <!-- Editable field -->
+                                    <template
+                                        v-else-if="column.kind === 'input'"
                                     >
+                                        <Input
+                                            v-model="
+                                                form.items[rowIndex][
+                                                    column.field!
+                                                ]
+                                            "
+                                            type="number"
+                                            :min="
+                                                column.allowNegative
+                                                    ? undefined
+                                                    : 0
+                                            "
+                                            :max="maxFor(column)"
+                                            step="0.01"
+                                            :disabled="!can.edit"
+                                            class="h-7 w-full min-w-0 px-1.5 text-right text-xs tabular-nums"
+                                        />
+                                        <p
+                                            v-if="column.sub"
+                                            class="mt-1 text-right text-xs tabular-nums"
+                                            :class="subClass(column)"
+                                        >
+                                            {{
+                                                money(
+                                                    results[rowIndex][
+                                                        column.sub
+                                                    ],
+                                                )
+                                            }}
+                                        </p>
+                                        <InputError
+                                            :message="errorFor(rowIndex, column)"
+                                            class="text-xs"
+                                        />
+                                    </template>
+ 
+                                    <!-- Computed amount -->
+                                    <template v-else>
+                                        <span :class="calcClass(column)">
+                                            {{
+                                                money(
+                                                    results[rowIndex][
+                                                        column.calc!
+                                                    ],
+                                                )
+                                            }}
+                                        </span>
+                                    </template>
                                 </td>
                             </tr>
                         </tbody>

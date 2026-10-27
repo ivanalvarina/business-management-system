@@ -54,6 +54,12 @@ class WorkTask extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    /** @return BelongsToMany<User, $this> */
+    public function collaborators(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'work_task_collaborators')->withTimestamps();
+    }
+
     /** @return BelongsToMany<TaskLabel, $this> */
     public function labels(): BelongsToMany
     {

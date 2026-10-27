@@ -80,20 +80,30 @@ class WorkBoardController extends Controller
     public function show(Request $request, WorkBoard $workBoard): Response
     {
         Gate::authorize('view', $workBoard);
-        $canViewAllEod = $request->user()->can('eod-reports.view-all');
+        $user = $request->user();
+        $isSuperAdmin = $user->hasRole('Super Admin');
 
         $workBoard->load([
             'company:id,company_code,company_name',
             'members:id,name,email',
             'labels:id,work_board_id,name,color',
             'columns.tasks' => fn ($query) => $query
+                ->when(! $isSuperAdmin, fn (Builder $query) => $query->where(function (Builder $query) use ($user): void {
+                    $query->where('created_by', $user->id)
+                        ->orWhere('assigned_to', $user->id)
+                        ->orWhereHas('collaborators', fn (Builder $query) => $query->whereKey($user->id));
+                }))
                 ->with([
                     'assignee:id,name,email',
+                    'collaborators:id,name,email',
                     'labels:id,name,color',
                     'eodItems' => fn ($query) => $query
-                        ->whereHas('report', fn ($query) => $query
-                            ->when(! $canViewAllEod, fn ($query) => $query->where('user_id', $request->user()->id))
+                        ->whereHas('report', fn (Builder $query) => $query
                             ->whereDate('work_date', '>=', now()->subDays(30)))
+                        ->when(! $isSuperAdmin, fn (Builder $query) => $query->where(function (Builder $query) use ($user): void {
+                            $query->whereHas('report', fn (Builder $query) => $query->where('user_id', $user->id))
+                                ->orWhereHas('task', fn (Builder $query) => $query->where('created_by', $user->id));
+                        }))
                         ->with(['report.user:id,name', 'attachments'])
                         ->latest(),
                 ]),
@@ -108,16 +118,17 @@ class WorkBoardController extends Controller
                 ->get(['users.id', 'name', 'email']),
             'today' => now()->toDateString(),
             'can' => [
-                'editBoard' => $request->user()->can('update', $workBoard),
-                'deleteBoard' => $request->user()->can('delete', $workBoard),
-                'createTask' => $request->user()->can('work-tasks.create'),
-                'editTask' => $request->user()->can('work-tasks.edit'),
-                'deleteTask' => $request->user()->can('work-tasks.delete'),
-                'moveTask' => $request->user()->can('work-tasks.move'),
-                'assignTask' => $request->user()->can('work-tasks.assign'),
-                'submitEod' => $request->user()->can('eod-reports.submit-own'),
+                'editBoard' => $user->can('update', $workBoard),
+                'deleteBoard' => $user->can('delete', $workBoard),
+                'createTask' => $user->can('work-tasks.create'),
+                'editTask' => $user->can('work-tasks.edit'),
+                'deleteTask' => $user->can('work-tasks.delete'),
+                'moveTask' => $user->can('work-tasks.move'),
+                'assignTask' => $isSuperAdmin && $user->can('work-tasks.assign'),
+                'submitEod' => $user->can('eod-reports.submit-own'),
             ],
-            'currentUserId' => $request->user()->id,
+            'currentUserId' => $user->id,
+            'isSuperAdmin' => $isSuperAdmin,
         ]);
     }
 
@@ -139,11 +150,15 @@ class WorkBoardController extends Controller
     public function destroy(Request $request, WorkBoard $workBoard, AuditLogger $audit): RedirectResponse
     {
         Gate::authorize('delete', $workBoard);
-        abort_if(
-            $workBoard->tasks()->whereHas('eodItems')->exists(),
-            409,
-            __('Boards with EOD history cannot be deleted.'),
-        );
+        if ($workBoard->tasks()->whereHas('eodItems')->exists()) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => __('This board cannot be deleted because one or more tasks have EOD updates.'),
+            ]);
+
+            return back();
+        }
+
         $companyId = $workBoard->company_id;
         $oldValues = $workBoard->only(['company_id', 'name', 'status']);
         $workBoard->delete();

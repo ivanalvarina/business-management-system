@@ -20,7 +20,7 @@ class WorkTaskPolicy
      */
     public function view(User $user, WorkTask $workTask): bool
     {
-        return $user->can('view', $workTask->board);
+        return $user->can('view', $workTask->board) && $this->canParticipateInTask($user, $workTask);
     }
 
     /**
@@ -36,7 +36,9 @@ class WorkTaskPolicy
      */
     public function update(User $user, WorkTask $workTask): bool
     {
-        return $user->can('work-tasks.edit') && $user->can('view', $workTask->board);
+        return $user->can('work-tasks.edit')
+            && $user->can('view', $workTask->board)
+            && $this->canManageTask($user, $workTask);
     }
 
     /**
@@ -44,7 +46,9 @@ class WorkTaskPolicy
      */
     public function delete(User $user, WorkTask $workTask): bool
     {
-        return $user->can('work-tasks.delete') && $user->can('view', $workTask->board);
+        return $user->can('work-tasks.delete')
+            && $user->can('view', $workTask->board)
+            && $this->canManageTask($user, $workTask);
     }
 
     /**
@@ -65,13 +69,28 @@ class WorkTaskPolicy
 
     public function move(User $user, WorkTask $workTask): bool
     {
-        return $user->can('work-tasks.move') && $user->can('view', $workTask->board);
+        return $user->can('work-tasks.move')
+            && $user->can('view', $workTask->board)
+            && $this->canParticipateInTask($user, $workTask);
     }
 
     public function submitEod(User $user, WorkTask $workTask): bool
     {
         return $user->can('eod-reports.submit-own')
-            && $workTask->assigned_to === $user->id
+            && ($workTask->assigned_to === $user->id || $workTask->collaborators()->whereKey($user->id)->exists())
             && $user->can('view', $workTask->board);
+    }
+
+    private function canManageTask(User $user, WorkTask $workTask): bool
+    {
+        return $user->hasRole('Super Admin')
+            || $workTask->created_by === $user->id
+            || $workTask->assigned_to === $user->id;
+    }
+
+    private function canParticipateInTask(User $user, WorkTask $workTask): bool
+    {
+        return $this->canManageTask($user, $workTask)
+            || $workTask->collaborators()->whereKey($user->id)->exists();
     }
 }

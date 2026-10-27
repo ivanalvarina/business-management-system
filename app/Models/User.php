@@ -59,6 +59,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(WorkTask::class, 'assigned_to');
     }
 
+    /** @return BelongsToMany<WorkTask, $this> */
+    public function collaboratingWorkTasks(): BelongsToMany
+    {
+        return $this->belongsToMany(WorkTask::class, 'work_task_collaborators')->withTimestamps();
+    }
+
     /** @return HasMany<EodReport, $this> */
     public function eodReports(): HasMany
     {

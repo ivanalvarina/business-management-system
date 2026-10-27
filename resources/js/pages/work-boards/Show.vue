@@ -12,6 +12,7 @@ import {
     Settings2,
     Trash2,
     UserRound,
+    UsersRound,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -56,11 +57,13 @@ type Task = {
     id: number;
     work_board_column_id: number;
     assigned_to: number | null;
+    created_by: number;
     title: string;
     description: string | null;
     priority: 'low' | 'normal' | 'high' | 'urgent';
     due_date: string | null;
     assignee: UserOption | null;
+    collaborators: UserOption[];
     labels: Label[];
     eod_items: EodItem[];
 };
@@ -90,6 +93,7 @@ const props = defineProps<{
     availableUsers: UserOption[];
     today: string;
     currentUserId: number;
+    isSuperAdmin: boolean;
     can: {
         editBoard: boolean;
         deleteBoard: boolean;
@@ -119,6 +123,7 @@ const taskForm = useForm({
     priority: 'normal' as Task['priority'],
     due_date: '',
     label_ids: [] as number[],
+    collaborator_ids: [] as number[],
 });
 const editTaskForm = useForm({
     work_board_column_id: null as number | null,
@@ -128,6 +133,7 @@ const editTaskForm = useForm({
     priority: 'normal' as Task['priority'],
     due_date: '',
     label_ids: [] as number[],
+    collaborator_ids: [] as number[],
 });
 const columnForm = useForm({ name: '', color: 'slate', is_done: false });
 const labelForm = useForm({ name: '', color: 'blue' });
@@ -163,7 +169,11 @@ const visibleTasks = (column: Column) => {
     if (assigneeFilter.value === 'all') return column.tasks;
     if (assigneeFilter.value === 'mine') {
         return column.tasks.filter(
-            (task) => task.assigned_to === props.currentUserId,
+            (task) =>
+                task.assigned_to === props.currentUserId ||
+                task.collaborators.some(
+                    (collaborator) => collaborator.id === props.currentUserId,
+                ),
         );
     }
     if (assigneeFilter.value === 'unassigned') {
@@ -171,8 +181,38 @@ const visibleTasks = (column: Column) => {
     }
 
     return column.tasks.filter(
-        (task) => task.assigned_to === assigneeFilter.value,
+        (task) =>
+            task.assigned_to === assigneeFilter.value ||
+            task.collaborators.some(
+                (collaborator) => collaborator.id === assigneeFilter.value,
+            ),
     );
+};
+const canManageTask = (task: Task) =>
+    props.isSuperAdmin ||
+    task.created_by === props.currentUserId ||
+    task.assigned_to === props.currentUserId;
+const canSubmitEodForTask = (task: Task) =>
+    props.can.submitEod &&
+    (task.assigned_to === props.currentUserId ||
+        task.collaborators.some(
+            (collaborator) => collaborator.id === props.currentUserId,
+        ));
+const collaboratorOptions = (assignedTo: number | null) =>
+    props.availableUsers.filter(
+        (user) =>
+            user.id !== (props.isSuperAdmin ? assignedTo : props.currentUserId),
+    );
+const collaboratorSummary = (task: Task) => {
+    const visibleNames = task.collaborators
+        .slice(0, 2)
+        .map((collaborator) => collaborator.name)
+        .join(', ');
+    const remainingCount = task.collaborators.length - 2;
+
+    return remainingCount > 0
+        ? `${visibleNames} +${remainingCount}`
+        : visibleNames;
 };
 const priorityClass = (priority: Task['priority']) =>
     ({
@@ -204,7 +244,13 @@ const createTask = () =>
     taskForm.post(taskStore.url(props.board.id), {
         preserveScroll: true,
         onSuccess: () => {
-            taskForm.reset('title', 'description', 'due_date', 'label_ids');
+            taskForm.reset(
+                'title',
+                'description',
+                'due_date',
+                'label_ids',
+                'collaborator_ids',
+            );
             isTaskDialogOpen.value = false;
         },
     });
@@ -224,6 +270,9 @@ const startEditingTask = (task: Task) => {
     editTaskForm.priority = task.priority;
     editTaskForm.due_date = task.due_date?.slice(0, 10) ?? '';
     editTaskForm.label_ids = task.labels.map((label) => label.id);
+    editTaskForm.collaborator_ids = task.collaborators.map(
+        (collaborator) => collaborator.id,
+    );
     selectedDetailsTask.value = null;
     editingTask.value = task;
 };
@@ -290,7 +339,7 @@ const dropTask = (columnId: number) => {
 const removeTask = (task: Task) => {
     if (
         window.confirm(
-            `Delete task “${task.title}”? Its EOD history must be empty before it can be deleted.`,
+            `Delete task "${task.title}"? This will also permanently delete its EOD history and screenshots.`,
         )
     ) {
         selectedDetailsTask.value = null;
@@ -366,6 +415,7 @@ const deleteBoard = () => {
         <div class="min-w-0 space-y-4">
             <section class="min-w-0 space-y-4">
                 <div
+                    v-if="isSuperAdmin"
                     class="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                     <div>
@@ -453,7 +503,10 @@ const deleteBoard = () => {
                                                     {{ task.title }}
                                                 </h3>
                                                 <Button
-                                                    v-if="can.deleteTask"
+                                                    v-if="
+                                                        can.deleteTask &&
+                                                        canManageTask(task)
+                                                    "
                                                     variant="ghost"
                                                     size="icon"
                                                     class="size-7 shrink-0 text-muted-foreground hover:text-destructive"
@@ -502,6 +555,7 @@ const deleteBoard = () => {
                                                 class="mt-3 space-y-1.5 text-xs text-muted-foreground"
                                             >
                                                 <p
+                                                    v-if="isSuperAdmin"
                                                     class="flex items-center gap-1.5"
                                                 >
                                                     <UserRound
@@ -509,6 +563,22 @@ const deleteBoard = () => {
                                                     />{{
                                                         task.assignee?.name ||
                                                         'Unassigned'
+                                                    }}
+                                                </p>
+                                                <p
+                                                    v-if="
+                                                        task.collaborators
+                                                            .length
+                                                    "
+                                                    class="flex items-center gap-1.5"
+                                                >
+                                                    <UsersRound
+                                                        class="size-3.5"
+                                                    />
+                                                    {{
+                                                        collaboratorSummary(
+                                                            task,
+                                                        )
                                                     }}
                                                 </p>
                                                 <p
@@ -527,11 +597,7 @@ const deleteBoard = () => {
                                             </div>
 
                                             <Button
-                                                v-if="
-                                                    can.submitEod &&
-                                                    task.assigned_to ===
-                                                        currentUserId
-                                                "
+                                                v-if="canSubmitEodForTask(task)"
                                                 variant="outline"
                                                 size="sm"
                                                 class="mt-2 w-full"
@@ -952,7 +1018,14 @@ const deleteBoard = () => {
                             </span>
                         </div>
 
-                        <div class="grid gap-3 sm:grid-cols-3">
+                        <div
+                            :class="[
+                                'grid gap-3',
+                                isSuperAdmin
+                                    ? 'sm:grid-cols-3'
+                                    : 'sm:grid-cols-2',
+                            ]"
+                        >
                             <div class="rounded-lg border bg-muted/30 p-3">
                                 <p class="text-xs text-muted-foreground">
                                     Column
@@ -961,7 +1034,10 @@ const deleteBoard = () => {
                                     {{ taskColumnName(selectedDetailsTask) }}
                                 </p>
                             </div>
-                            <div class="rounded-lg border bg-muted/30 p-3">
+                            <div
+                                v-if="isSuperAdmin"
+                                class="rounded-lg border bg-muted/30 p-3"
+                            >
                                 <p class="text-xs text-muted-foreground">
                                     Assignee
                                 </p>
@@ -986,6 +1062,29 @@ const deleteBoard = () => {
                                     }}
                                 </p>
                             </div>
+                        </div>
+
+                        <div>
+                            <h3 class="text-sm font-medium">Collaborators</h3>
+                            <div
+                                v-if="selectedDetailsTask.collaborators.length"
+                                class="mt-2 flex flex-wrap gap-2"
+                            >
+                                <span
+                                    v-for="collaborator in selectedDetailsTask.collaborators"
+                                    :key="collaborator.id"
+                                    class="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs"
+                                >
+                                    <UserRound class="size-3.5" />
+                                    {{ collaborator.name }}
+                                </span>
+                            </div>
+                            <p
+                                v-else
+                                class="mt-2 text-sm text-muted-foreground"
+                            >
+                                No collaborators assigned.
+                            </p>
                         </div>
 
                         <div>
@@ -1073,22 +1172,28 @@ const deleteBoard = () => {
                                 No EOD updates yet.
                                 <template
                                     v-if="
-                                        selectedDetailsTask.assigned_to ===
-                                            currentUserId && can.submitEod
+                                        canSubmitEodForTask(selectedDetailsTask)
                                     "
                                 >
                                     Use “Add today’s EOD” below to submit your
                                     accomplishment.
                                 </template>
                                 <template
-                                    v-else-if="selectedDetailsTask.assignee"
+                                    v-else-if="
+                                        isSuperAdmin &&
+                                        selectedDetailsTask.assignee
+                                    "
                                 >
                                     Only
                                     {{ selectedDetailsTask.assignee.name }} can
                                     submit an EOD update for this task.
                                 </template>
-                                <template v-else>
+                                <template v-else-if="isSuperAdmin">
                                     Assign this task to a user first.
+                                </template>
+                                <template v-else>
+                                    EOD updates can only be submitted by the
+                                    task owner or a collaborator.
                                 </template>
                             </p>
                         </div>
@@ -1097,7 +1202,10 @@ const deleteBoard = () => {
                     <DialogFooter class="gap-2 sm:justify-between">
                         <div class="flex flex-col-reverse gap-2 sm:flex-row">
                             <Button
-                                v-if="can.deleteTask"
+                                v-if="
+                                    can.deleteTask &&
+                                    canManageTask(selectedDetailsTask)
+                                "
                                 type="button"
                                 variant="destructive"
                                 @click="removeTask(selectedDetailsTask)"
@@ -1105,7 +1213,10 @@ const deleteBoard = () => {
                                 <Trash2 /> Delete task
                             </Button>
                             <Button
-                                v-if="can.editTask"
+                                v-if="
+                                    can.editTask &&
+                                    canManageTask(selectedDetailsTask)
+                                "
                                 type="button"
                                 variant="outline"
                                 @click="startEditingTask(selectedDetailsTask)"
@@ -1120,11 +1231,7 @@ const deleteBoard = () => {
                                 </Button>
                             </DialogClose>
                             <Button
-                                v-if="
-                                    can.submitEod &&
-                                    selectedDetailsTask.assigned_to ===
-                                        currentUserId
-                                "
+                                v-if="canSubmitEodForTask(selectedDetailsTask)"
                                 type="button"
                                 @click="selectEodTask(selectedDetailsTask)"
                             >
@@ -1149,8 +1256,11 @@ const deleteBoard = () => {
                 <DialogHeader>
                     <DialogTitle>Edit task</DialogTitle>
                     <DialogDescription>
-                        Update the task details, workflow column, assignment,
+                        Update the task details, collaborators, workflow column,
                         and labels.
+                        <template v-if="isSuperAdmin">
+                            You can also change its assignee.
+                        </template>
                     </DialogDescription>
                 </DialogHeader>
 
@@ -1233,7 +1343,7 @@ const deleteBoard = () => {
                         <InputError :message="editTaskForm.errors.priority" />
                     </div>
 
-                    <div class="space-y-1.5">
+                    <div v-if="isSuperAdmin" class="space-y-1.5">
                         <label
                             for="edit-task-assignee"
                             class="text-sm font-medium"
@@ -1274,6 +1384,45 @@ const deleteBoard = () => {
                             type="date"
                         />
                         <InputError :message="editTaskForm.errors.due_date" />
+                    </div>
+
+                    <div class="space-y-2 md:col-span-2">
+                        <div>
+                            <p class="text-sm font-medium">Collaborators</p>
+                            <p class="text-xs text-muted-foreground">
+                                Select the users who will work on this task and
+                                submit their own EOD updates.
+                            </p>
+                        </div>
+                        <div
+                            class="grid max-h-44 gap-2 overflow-y-auto rounded-md border p-2 sm:grid-cols-2"
+                        >
+                            <label
+                                v-for="collaborator in collaboratorOptions(
+                                    editTaskForm.assigned_to,
+                                )"
+                                :key="collaborator.id"
+                                class="flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
+                            >
+                                <input
+                                    v-model="editTaskForm.collaborator_ids"
+                                    type="checkbox"
+                                    :value="collaborator.id"
+                                />
+                                <span class="min-w-0">
+                                    <span class="block truncate font-medium">{{
+                                        collaborator.name
+                                    }}</span>
+                                    <span
+                                        class="block truncate text-xs text-muted-foreground"
+                                        >{{ collaborator.email }}</span
+                                    >
+                                </span>
+                            </label>
+                        </div>
+                        <InputError
+                            :message="editTaskForm.errors.collaborator_ids"
+                        />
                     </div>
 
                     <div
@@ -1330,8 +1479,14 @@ const deleteBoard = () => {
                 <DialogHeader>
                     <DialogTitle>New task</DialogTitle>
                     <DialogDescription>
-                        Add a task, choose its workflow column, and assign it to
-                        an active company user.
+                        Add a task, choose its workflow column, and select its
+                        collaborators.
+                        <template v-if="isSuperAdmin">
+                            You can also assign it to an active company user.
+                        </template>
+                        <template v-else>
+                            It will be assigned to you automatically.
+                        </template>
                     </DialogDescription>
                 </DialogHeader>
 
@@ -1405,7 +1560,7 @@ const deleteBoard = () => {
                         <InputError :message="taskForm.errors.priority" />
                     </div>
 
-                    <div class="space-y-1.5">
+                    <div v-if="isSuperAdmin" class="space-y-1.5">
                         <label for="task-assignee" class="text-sm font-medium"
                             >Assignee</label
                         >
@@ -1440,6 +1595,45 @@ const deleteBoard = () => {
                             type="date"
                         />
                         <InputError :message="taskForm.errors.due_date" />
+                    </div>
+
+                    <div class="space-y-2 md:col-span-2">
+                        <div>
+                            <p class="text-sm font-medium">Collaborators</p>
+                            <p class="text-xs text-muted-foreground">
+                                Each collaborator can open this task and submit
+                                a separate EOD update.
+                            </p>
+                        </div>
+                        <div
+                            class="grid max-h-44 gap-2 overflow-y-auto rounded-md border p-2 sm:grid-cols-2"
+                        >
+                            <label
+                                v-for="collaborator in collaboratorOptions(
+                                    taskForm.assigned_to,
+                                )"
+                                :key="collaborator.id"
+                                class="flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm hover:bg-muted/50"
+                            >
+                                <input
+                                    v-model="taskForm.collaborator_ids"
+                                    type="checkbox"
+                                    :value="collaborator.id"
+                                />
+                                <span class="min-w-0">
+                                    <span class="block truncate font-medium">{{
+                                        collaborator.name
+                                    }}</span>
+                                    <span
+                                        class="block truncate text-xs text-muted-foreground"
+                                        >{{ collaborator.email }}</span
+                                    >
+                                </span>
+                            </label>
+                        </div>
+                        <InputError
+                            :message="taskForm.errors.collaborator_ids"
+                        />
                     </div>
 
                     <div

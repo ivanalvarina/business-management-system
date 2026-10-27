@@ -16,11 +16,13 @@ class EodAttachmentController extends Controller
     {
         $eodAttachment->loadMissing('item.report', 'item.task.board.company');
         $report = $eodAttachment->item->report;
+        $task = $eodAttachment->item->task;
         $board = $eodAttachment->item->task->board;
         $canView = $request->user()->can('view', $board)
-            && ($report->user_id === $request->user()->id
-                ? $request->user()->can('eod-reports.view-own')
-                : $request->user()->can('eod-reports.view-all'));
+            && ($request->user()->hasRole('Super Admin')
+                || $task->created_by === $request->user()->id
+                || ($report->user_id === $request->user()->id
+                    && $request->user()->can('eod-reports.view-own')));
         abort_unless($canView, 403);
 
         return Storage::disk($eodAttachment->disk)->response(

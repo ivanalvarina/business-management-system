@@ -11,6 +11,21 @@ use Illuminate\Validation\Validator;
 
 class StoreWorkTaskRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if ($this->user()?->hasRole('Super Admin')) {
+            return;
+        }
+
+        $workTask = $this->route('work_task');
+
+        $this->merge([
+            'assigned_to' => $workTask instanceof WorkTask
+                ? $workTask->assigned_to
+                : $this->user()?->id,
+        ]);
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -39,6 +54,8 @@ class StoreWorkTaskRequest extends FormRequest
             'due_date' => ['nullable', 'date'],
             'label_ids' => ['array', 'max:20'],
             'label_ids.*' => ['integer', 'distinct', 'exists:task_labels,id'],
+            'collaborator_ids' => ['array', 'max:50'],
+            'collaborator_ids.*' => ['integer', 'distinct', 'exists:users,id'],
         ];
     }
 
@@ -57,22 +74,22 @@ class StoreWorkTaskRequest extends FormRequest
                 $validator->errors()->add('work_board_column_id', __('Select a column from this board.'));
             }
 
-            $assignedTo = $this->integer('assigned_to');
-            $existingTask = $this->route('work_task');
-            $isChangingAssignee = ! $existingTask instanceof WorkTask || $existingTask->assigned_to !== $assignedTo;
+            $assignedTo = $this->filled('assigned_to') ? $this->integer('assigned_to') : null;
 
-            if ($assignedTo > 0 && ! $board->company->users()->where('is_active', true)->whereKey($assignedTo)->exists()) {
+            if ($assignedTo !== null && ! $board->company->users()->where('is_active', true)->whereKey($assignedTo)->exists()) {
                 $validator->errors()->add('assigned_to', __('The assignee must be an active user with access to this company.'));
-            }
-
-            if ($assignedTo > 0 && $isChangingAssignee && $assignedTo !== $this->user()->id && ! $this->user()->can('work-tasks.assign')) {
-                $validator->errors()->add('assigned_to', __('You are not allowed to assign tasks to another user.'));
             }
 
             $labelIds = $this->array('label_ids');
 
             if ($board->labels()->whereKey($labelIds)->count() !== count($labelIds)) {
                 $validator->errors()->add('label_ids', __('Every label must belong to this board.'));
+            }
+
+            $collaboratorIds = $this->array('collaborator_ids');
+
+            if ($board->company->users()->where('is_active', true)->whereKey($collaboratorIds)->count() !== count($collaboratorIds)) {
+                $validator->errors()->add('collaborator_ids', __('Every collaborator must be an active user with access to this company.'));
             }
         }];
     }
