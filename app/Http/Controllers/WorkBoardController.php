@@ -90,6 +90,7 @@ class WorkBoardController extends Controller
             'columns.tasks' => fn ($query) => $query
                 ->with([
                     'assignee:id,name,email',
+                    'creator:id,name',
                     'collaborators:id,name,email',
                     'labels:id,name,color',
                     'eodItems' => fn ($query) => $query

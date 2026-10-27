@@ -33,6 +33,7 @@ type ContactForm = {
 
 type Client = {
     id: number;
+    client_code: string;
     client_name: string;
     trade_name: string | null;
     tin: string | null;
@@ -70,6 +71,7 @@ const blankContact = (isPrimary = false): ContactForm => ({
 });
 
 const form = useForm({
+    client_code: props.client.client_code,
     client_name: props.client.client_name,
     trade_name: props.client.trade_name ?? '',
     tin: props.client.tin ?? '',
@@ -133,6 +135,15 @@ const submit = () => {
                 <CardContent>
                     <div class="grid gap-4 md:grid-cols-3">
                         <!-- Row 1 -->
+                        <div class="grid gap-2">
+                            <Label for="client_code">Client code</Label>
+                            <Input
+                                id="client_code"
+                                v-model="form.client_code"
+                                readonly
+                            />
+                            <InputError :message="form.errors.client_code" />
+                        </div>
                         <div class="grid gap-2">
                             <Label for="client_name">Client name</Label>
                             <Input

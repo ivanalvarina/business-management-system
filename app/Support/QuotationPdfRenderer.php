@@ -21,6 +21,8 @@ class QuotationPdfRenderer
     /** Font family used for all text ('Narrow' if TTFs found, else 'helvetica'). */
     private string $family = 'helvetica';
 
+    private bool $customFontsAvailable = false;
+
     /** Enable the grid + field-box overlay (use ?debug=1 in local only). */
     public function debug(bool $on = true): static
     {
@@ -46,10 +48,7 @@ class QuotationPdfRenderer
         $config = is_array($snapshot['config'] ?? null) ? $snapshot['config'] : [];
         $templatePath = Storage::disk('public')->path($storedPath);
 
-        // tFPDF looks for TTFs in FPDF_FONTPATH.'unifont/'. Must end with a slash.
-        if (! defined('FPDF_FONTPATH')) {
-            define('FPDF_FONTPATH', storage_path('app/pdf-fonts').DIRECTORY_SEPARATOR);
-        }
+        $this->customFontsAvailable = $this->configureCustomFonts();
 
         $pdf = new PdfCanvas('P', 'mm');
         $pdf->SetAutoPageBreak(false, 0);
@@ -91,10 +90,12 @@ class QuotationPdfRenderer
      */
     private function registerFonts(PdfCanvas $pdf): string
     {
-        $dir = storage_path('app/pdf-fonts/unifont').DIRECTORY_SEPARATOR;
+        if (! $this->customFontsAvailable) {
+            return 'helvetica';
+        }
 
         foreach (self::FONT_FILES as $file) {
-            if (! is_file($dir.$file)) {
+            if (! $this->forgetStaleFontMetrics($file)) {
                 return 'helvetica';
             }
         }
@@ -104,6 +105,56 @@ class QuotationPdfRenderer
         }
 
         return 'Narrow';
+    }
+
+    private function configureCustomFonts(): bool
+    {
+        $fontDirectory = storage_path('app/pdf-fonts/unifont').DIRECTORY_SEPARATOR;
+
+        foreach (self::FONT_FILES as $file) {
+            if (! is_readable($fontDirectory.$file)) {
+                return false;
+            }
+        }
+
+        if (! defined('_SYSTEM_TTFONTS')) {
+            define('_SYSTEM_TTFONTS', $fontDirectory);
+        }
+
+        return realpath((string) constant('_SYSTEM_TTFONTS')) === realpath($fontDirectory);
+    }
+
+    /**
+     * tFPDF stores the absolute TTF path in its generated metrics file. Remove
+     * metrics created on a different host, such as Windows host files mounted
+     * into a Linux container, so tFPDF can rebuild them for this runtime.
+     */
+    private function forgetStaleFontMetrics(string $fontFile): bool
+    {
+        $metricsName = strtolower(pathinfo($fontFile, PATHINFO_FILENAME));
+        $metricsDirectory = base_path('vendor/setasign/tfpdf/font/unifont');
+        $metricsPath = $metricsDirectory.DIRECTORY_SEPARATOR.$metricsName.'.mtx.php';
+
+        if (! is_file($metricsPath)) {
+            return true;
+        }
+
+        $cachedFontPath = (static function (string $path): ?string {
+            $ttffile = null;
+            include $path;
+
+            return is_string($ttffile) ? $ttffile : null;
+        })($metricsPath);
+        $fontPath = storage_path('app/pdf-fonts/unifont'.DIRECTORY_SEPARATOR.$fontFile);
+
+        if ($cachedFontPath !== null && realpath($cachedFontPath) === realpath($fontPath)) {
+            return true;
+        }
+
+        @unlink($metricsPath);
+        @unlink($metricsDirectory.DIRECTORY_SEPARATOR.$metricsName.'.cw.dat');
+
+        return ! is_file($metricsPath);
     }
 
     /**

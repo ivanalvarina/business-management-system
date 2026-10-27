@@ -149,6 +149,9 @@ test('regular board members see all board tasks but only permitted EOD updates',
             ->where('board.columns.0.tasks', fn ($tasks) => collect($tasks)->contains('id', $ownTask->id)
                 && collect($tasks)->contains('id', $collaboratingTask->id)
                 && collect($tasks)->contains('id', $otherTask->id)
+                && collect($tasks)->firstWhere('id', $otherTask->id)['assignee']['name'] === $otherCreator->name
+                && collect($tasks)->firstWhere('id', $otherTask->id)['creator']['name'] === $otherCreator->name
+                && ! isset(collect($tasks)->firstWhere('id', $otherTask->id)['creator']['email'])
                 && collect($tasks)->firstWhere('id', $ownTask->id)['eod_items'][0]['id'] === $eodItem->id
                 && collect($tasks)->firstWhere('id', $otherTask->id)['eod_items'] === [])
         );

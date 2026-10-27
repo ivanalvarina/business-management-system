@@ -43,14 +43,15 @@ import {
 } from '@/routes/work-tasks';
 import { destroy, index, update } from '@/routes/work-boards';
 
-type UserOption = { id: number; name: string; email: string };
+type UserIdentity = { id: number; name: string };
+type UserOption = UserIdentity & { email: string };
 type Label = { id: number; name: string; color: string };
 type Attachment = { id: number; original_name: string };
 type EodItem = {
     id: number;
     accomplishment: string;
     minutes_spent: number | null;
-    report: { work_date: string; blockers: string | null; user: UserOption };
+    report: { work_date: string; blockers: string | null; user: UserIdentity };
     attachments: Attachment[];
 };
 type Task = {
@@ -63,6 +64,7 @@ type Task = {
     priority: 'low' | 'normal' | 'high' | 'urgent';
     due_date: string | null;
     assignee: UserOption | null;
+    creator: UserIdentity | null;
     collaborators: UserOption[];
     labels: Label[];
     eod_items: EodItem[];
@@ -1018,14 +1020,7 @@ const deleteBoard = () => {
                             </span>
                         </div>
 
-                        <div
-                            :class="[
-                                'grid gap-3',
-                                isSuperAdmin
-                                    ? 'sm:grid-cols-3'
-                                    : 'sm:grid-cols-2',
-                            ]"
-                        >
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div class="rounded-lg border bg-muted/30 p-3">
                                 <p class="text-xs text-muted-foreground">
                                     Column
@@ -1034,17 +1029,25 @@ const deleteBoard = () => {
                                     {{ taskColumnName(selectedDetailsTask) }}
                                 </p>
                             </div>
-                            <div
-                                v-if="isSuperAdmin"
-                                class="rounded-lg border bg-muted/30 p-3"
-                            >
+                            <div class="rounded-lg border bg-muted/30 p-3">
                                 <p class="text-xs text-muted-foreground">
-                                    Assignee
+                                    Task owner
                                 </p>
                                 <p class="mt-1 text-sm font-medium">
                                     {{
                                         selectedDetailsTask.assignee?.name ||
                                         'Unassigned'
+                                    }}
+                                </p>
+                            </div>
+                            <div class="rounded-lg border bg-muted/30 p-3">
+                                <p class="text-xs text-muted-foreground">
+                                    Created by
+                                </p>
+                                <p class="mt-1 text-sm font-medium">
+                                    {{
+                                        selectedDetailsTask.creator?.name ||
+                                        'Unknown user'
                                     }}
                                 </p>
                             </div>

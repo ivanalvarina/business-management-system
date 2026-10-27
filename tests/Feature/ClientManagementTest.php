@@ -3,6 +3,7 @@
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\User;
+use Inertia\Testing\AssertableInertia as Assert;
 
 test('users without permission cannot access client management', function () {
     $this->actingAs(User::factory()->create())
@@ -175,8 +176,15 @@ test('authorized users can update and deactivate clients', function () {
     $client->companies()->attach($company, ['status' => Company::STATUS_ACTIVE]);
 
     $this->actingAs($user)
+        ->get(route('clients.edit', $client))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('clients/Edit')
+            ->where('client.client_code', 'OLD')
+        );
+
+    $this->actingAs($user)
         ->put(route('clients.update', $client), [
-            'client_code' => 'NEW',
+            'client_code' => 'OLD',
             'client_name' => 'New Client',
             'status' => Client::STATUS_ACTIVE,
             'company_ids' => [$company->id],
@@ -187,9 +195,10 @@ test('authorized users can update and deactivate clients', function () {
                 ],
             ],
         ])
-        ->assertRedirect(route('clients.show', $client));
+        ->assertRedirect(route('clients.index'));
 
-    expect($client->fresh()->client_code)->toBe('NEW')
+    expect($client->fresh()->client_code)->toBe('OLD')
+        ->and($client->fresh()->client_name)->toBe('New Client')
         ->and($client->contactPeople()->where('is_primary', true)->first()?->name)->toBe('Updated Contact');
 
     $this->actingAs($user)
