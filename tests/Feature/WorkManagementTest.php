@@ -105,7 +105,7 @@ test('regular users are automatically assigned to tasks they create', function (
         ->and($board->members()->whereKey($otherUser->id)->exists())->toBeTrue();
 });
 
-test('regular users see created assigned and collaborating tasks with permitted EOD updates', function () {
+test('regular board members see all board tasks but only permitted EOD updates', function () {
     $creator = userWithPermissions('work-boards.view');
     $assignee = User::factory()->create();
     $otherCreator = User::factory()->create();
@@ -133,6 +133,13 @@ test('regular users see created assigned and collaborating tasks with permitted 
         'work_task_id' => $ownTask->id,
         'accomplishment' => 'Completed the assigned work.',
     ]);
+    $otherReport = EodReport::factory()->for($company)->for($otherCreator)->create([
+        'work_date' => now()->toDateString(),
+    ]);
+    $otherReport->items()->create([
+        'work_task_id' => $otherTask->id,
+        'accomplishment' => 'Private teammate update.',
+    ]);
 
     $this->actingAs($creator)
         ->get(route('work-boards.show', $board))
@@ -141,8 +148,9 @@ test('regular users see created assigned and collaborating tasks with permitted 
             ->where('can.assignTask', false)
             ->where('board.columns.0.tasks', fn ($tasks) => collect($tasks)->contains('id', $ownTask->id)
                 && collect($tasks)->contains('id', $collaboratingTask->id)
-                && ! collect($tasks)->contains('id', $otherTask->id)
-                && collect($tasks)->firstWhere('id', $ownTask->id)['eod_items'][0]['id'] === $eodItem->id)
+                && collect($tasks)->contains('id', $otherTask->id)
+                && collect($tasks)->firstWhere('id', $ownTask->id)['eod_items'][0]['id'] === $eodItem->id
+                && collect($tasks)->firstWhere('id', $otherTask->id)['eod_items'] === [])
         );
 });
 

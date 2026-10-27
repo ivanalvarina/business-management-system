@@ -88,11 +88,6 @@ class WorkBoardController extends Controller
             'members:id,name,email',
             'labels:id,work_board_id,name,color',
             'columns.tasks' => fn ($query) => $query
-                ->when(! $isSuperAdmin, fn (Builder $query) => $query->where(function (Builder $query) use ($user): void {
-                    $query->where('created_by', $user->id)
-                        ->orWhere('assigned_to', $user->id)
-                        ->orWhereHas('collaborators', fn (Builder $query) => $query->whereKey($user->id));
-                }))
                 ->with([
                     'assignee:id,name,email',
                     'collaborators:id,name,email',
