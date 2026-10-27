@@ -169,6 +169,41 @@ test('quotations snapshot the selected company quotation template', function () 
         ->and(substr((string) $response->getContent(), 0, 4))->toBe('%PDF');
 });
 
+test('quotation printing moves text that exceeds its configured box to a continuation page', function () {
+    Storage::fake('public');
+
+    $user = userWithPermissions(['quotations.view', 'quotations.print']);
+    [$company, $client] = companyClientForQuotation($user);
+    storeQuotationTemplatePdf('quotation-templates/overflow.pdf');
+
+    $quotation = Quotation::factory()->create([
+        'company_id' => $company->id,
+        'client_id' => $client->id,
+        'notes' => str_repeat('Long quotation note that must remain readable. ', 20),
+        'quotation_template_snapshot' => [
+            'stored_path' => 'quotation-templates/overflow.pdf',
+            'config' => [
+                'fields' => [
+                    'notes' => [
+                        'page' => 1,
+                        'x' => 20,
+                        'y' => 30,
+                        'width' => 40,
+                        'height' => 5,
+                        'font_size' => 10,
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $response = $this->actingAs($user)
+        ->get(route('quotations.print', $quotation))
+        ->assertOk();
+
+    expect(preg_match_all('/\/Type\s*\/Page\b/', (string) $response->getContent()))->toBe(2);
+});
+
 test('company access and company client relationships are enforced', function () {
     $user = userWithPermissions('quotations.create');
     [$company, $client] = companyClientForQuotation($user);

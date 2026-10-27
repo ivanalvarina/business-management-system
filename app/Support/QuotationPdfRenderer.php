@@ -23,6 +23,9 @@ class QuotationPdfRenderer
 
     private bool $customFontsAvailable = false;
 
+    /** @var array<string, array{label: string, value: string}> */
+    private array $overflowSections = [];
+
     /** Enable the grid + field-box overlay (use ?debug=1 in local only). */
     public function debug(bool $on = true): static
     {
@@ -33,6 +36,7 @@ class QuotationPdfRenderer
 
     public function render(Quotation $quotation): string
     {
+        $this->overflowSections = [];
         $snapshot = $quotation->quotation_template_snapshot;
 
         if (! is_array($snapshot)) {
@@ -76,10 +80,12 @@ class QuotationPdfRenderer
             $pdf->AddPage($orientation, [$size['width'], $size['height']]);
             $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
 
-            $this->writeConfiguredFields($pdf, $quotation, $config, $pageNumber);
+            $this->writeConfiguredFields($pdf, $quotation, $config, $pageNumber, $size['height']);
             $this->writeConfiguredItems($pdf, $quotation, $config, $pageNumber);
             $this->drawGrid($pdf, $size['width'], $size['height']);
         }
+
+        $this->writeOverflowPages($pdf, $quotation);
 
         return $pdf->Output($this->filename($quotation), 'S');
     }
@@ -139,12 +145,12 @@ class QuotationPdfRenderer
             return true;
         }
 
-        $cachedFontPath = (static function (string $path): ?string {
-            $ttffile = null;
-            include $path;
+        $metrics = file_get_contents($metricsPath);
+        $cachedFontPath = null;
 
-            return is_string($ttffile) ? $ttffile : null;
-        })($metricsPath);
+        if (is_string($metrics) && preg_match("/\\\$ttffile='([^']*)';/", $metrics, $matches) === 1) {
+            $cachedFontPath = $matches[1];
+        }
         $fontPath = storage_path('app/pdf-fonts/unifont'.DIRECTORY_SEPARATOR.$fontFile);
 
         if ($cachedFontPath !== null && realpath($cachedFontPath) === realpath($fontPath)) {
@@ -160,8 +166,13 @@ class QuotationPdfRenderer
     /**
      * @param  array<string, mixed>  $config
      */
-    private function writeConfiguredFields(PdfCanvas $pdf, Quotation $quotation, array $config, int $pageNumber): void
-    {
+    private function writeConfiguredFields(
+        PdfCanvas $pdf,
+        Quotation $quotation,
+        array $config,
+        int $pageNumber,
+        float $pageHeight,
+    ): void {
         $fields = is_array($config['fields'] ?? null) ? $config['fields'] : [];
         $values = $this->fieldValues($quotation);
 
@@ -180,7 +191,10 @@ class QuotationPdfRenderer
                 continue;
             }
 
-            $this->writeText($pdf, $value, $fieldConfig, (string) $fieldName);
+            $this->writeText($pdf, $value, [
+                ...$fieldConfig,
+                'max_height' => $this->fieldMaxHeight($fieldConfig, $fields, $pageNumber, $pageHeight),
+            ], (string) $fieldName);
         }
     }
 
@@ -200,10 +214,11 @@ class QuotationPdfRenderer
         $rowHeight = (float) ($itemsConfig['row_height'] ?? 6);
         $fontSize = (float) ($itemsConfig['font_size'] ?? 9);
         $maxRows = (int) ($itemsConfig['max_rows'] ?? $quotation->items->count());
+        $items = $quotation->items->take($maxRows)->values();
+        $bottomY = $this->itemsBottomY($itemsConfig, $config, $pageNumber, $startY, $rowHeight, $items->count());
+        $rowY = $startY;
 
-        foreach ($quotation->items->take($maxRows)->values() as $index => $item) {
-            $rowY = $startY + ($index * $rowHeight);
-
+        foreach ($items as $index => $item) {
             // Column headers on the template have no currency, so items show plain numbers.
             $values = [
                 'item_no' => (string) ($index + 1),
@@ -216,6 +231,35 @@ class QuotationPdfRenderer
                 'amount' => number_format((float) $item->line_total, 2),
             ];
 
+            $requiredHeight = $rowHeight;
+
+            foreach ($columns as $columnName => $columnConfig) {
+                if (! is_array($columnConfig)) {
+                    continue;
+                }
+
+                $requiredHeight = max(
+                    $requiredHeight,
+                    $this->textHeight(
+                        $pdf,
+                        $values[(string) $columnName] ?? '',
+                        $columnConfig,
+                        $fontSize,
+                    ),
+                );
+            }
+
+            $remainingRows = $items->count() - $index - 1;
+            $availableHeight = $bottomY - $rowY - ($remainingRows * $rowHeight);
+
+            if ($availableHeight < $rowHeight) {
+                $this->rememberOverflow('items.description#'.($index + 1), $values['description']);
+
+                continue;
+            }
+
+            $actualHeight = min($requiredHeight, max($rowHeight, $availableHeight));
+
             foreach ($columns as $columnName => $columnConfig) {
                 if (! is_array($columnConfig)) {
                     continue;
@@ -224,12 +268,13 @@ class QuotationPdfRenderer
                 $this->writeText($pdf, $values[(string) $columnName] ?? '', [
                     ...$columnConfig,
                     'y' => $rowY,
-                    // Default each cell's height to the row height so the
-                    // debug box matches the row on the template.
-                    'height' => $columnConfig['height'] ?? $rowHeight,
+                    'height' => $actualHeight,
+                    'max_height' => $actualHeight,
                     'font_size' => $columnConfig['font_size'] ?? $fontSize,
                 ], "items.{$columnName}#".($index + 1));
             }
+
+            $rowY += $actualHeight;
         }
     }
 
@@ -248,6 +293,7 @@ class QuotationPdfRenderer
         $y = (float) ($config['y'] ?? 0);
         $width = (float) ($config['width'] ?? $config['max_width'] ?? 60);
         $height = (float) ($config['height'] ?? 5);
+        $maxHeight = max((float) ($config['max_height'] ?? $height), 1);
         $fontSize = (float) ($config['font_size'] ?? 10);
         $fontWeight = (string) ($config['font_weight'] ?? '');
         $align = strtoupper((string) ($config['align'] ?? 'L'));
@@ -260,9 +306,214 @@ class QuotationPdfRenderer
         $this->drawBox($pdf, $label, $x, $y, $width, $height);
 
         $pdf->SetFont($family, $style, $fontSize);
+        $lineHeight = $this->lineHeight($config, $fontSize);
+        $printableValue = $this->text($value);
+        $lines = $this->wrappedLines($pdf, $printableValue, $width);
+        $maximumLines = max(1, (int) floor($maxHeight / $lineHeight));
+
+        if (count($lines) > $maximumLines) {
+            $this->rememberOverflow($label, $value);
+            $lines = array_slice($lines, 0, $maximumLines);
+            $lines[$maximumLines - 1] = $this->continuedLine($pdf, $lines[$maximumLines - 1], $width);
+        }
+
         $pdf->SetTextColor(0, 0, 0);
         $pdf->SetXY($x, $y);
-        $pdf->MultiCell($width, $height, $this->text($value), 0, $align, false);
+        $pdf->MultiCell($width, $lineHeight, implode("\n", $lines), 0, $align, false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $fields
+     */
+    private function fieldMaxHeight(array $config, array $fields, int $pageNumber, float $pageHeight): float
+    {
+        if (isset($config['max_height'])) {
+            return max((float) $config['max_height'], 1);
+        }
+
+        if (isset($config['height'])) {
+            return max((float) $config['height'], 1);
+        }
+
+        $x = (float) ($config['x'] ?? 0);
+        $y = (float) ($config['y'] ?? 0);
+        $width = (float) ($config['width'] ?? $config['max_width'] ?? 60);
+        $nextY = $pageHeight - 10;
+
+        foreach ($fields as $otherConfig) {
+            if (! is_array($otherConfig) || (int) ($otherConfig['page'] ?? 1) !== $pageNumber) {
+                continue;
+            }
+
+            $otherY = (float) ($otherConfig['y'] ?? 0);
+            $otherX = (float) ($otherConfig['x'] ?? 0);
+            $otherWidth = (float) ($otherConfig['width'] ?? $otherConfig['max_width'] ?? 60);
+            $horizontallyOverlaps = $x < $otherX + $otherWidth && $otherX < $x + $width;
+
+            if ($horizontallyOverlaps && $otherY > $y && $otherY < $nextY) {
+                $nextY = $otherY;
+            }
+        }
+
+        return max($nextY - $y - 1, 1);
+    }
+
+    /**
+     * @param  array<string, mixed>  $itemsConfig
+     * @param  array<string, mixed>  $config
+     */
+    private function itemsBottomY(
+        array $itemsConfig,
+        array $config,
+        int $pageNumber,
+        float $startY,
+        float $rowHeight,
+        int $itemCount,
+    ): float {
+        if (isset($itemsConfig['bottom_y'])) {
+            return (float) $itemsConfig['bottom_y'];
+        }
+
+        $bottomY = $startY + (max($itemCount, 1) * $rowHeight);
+        $fields = is_array($config['fields'] ?? null) ? $config['fields'] : [];
+        $protectedFields = ['subtotal', 'discount', 'tax_amount', 'total_amount', 'notes', 'terms_conditions'];
+        $protectedBottomY = null;
+
+        foreach ($fields as $fieldName => $fieldConfig) {
+            if (! is_array($fieldConfig) || (int) ($fieldConfig['page'] ?? 1) !== $pageNumber) {
+                continue;
+            }
+
+            $source = (string) ($fieldConfig['field'] ?? $fieldName);
+            $fieldY = (float) ($fieldConfig['y'] ?? 0);
+
+            if (in_array($source, $protectedFields, true) && $fieldY > $startY) {
+                $protectedBottomY = $protectedBottomY === null
+                    ? $fieldY - 1
+                    : min($protectedBottomY, $fieldY - 1);
+            }
+        }
+
+        return $protectedBottomY ?? $bottomY;
+    }
+
+    /** @param array<string, mixed> $config */
+    private function textHeight(PdfCanvas $pdf, string $value, array $config, float $defaultFontSize): float
+    {
+        $fontSize = (float) ($config['font_size'] ?? $defaultFontSize);
+        $fontWeight = (string) ($config['font_weight'] ?? '');
+        $bold = in_array($fontWeight, ['bold', '700', '800', '900'], true);
+        $italic = in_array((string) ($config['font_style'] ?? ''), ['italic', 'I'], true);
+        $style = ($bold ? 'B' : '').($italic ? 'I' : '');
+        $family = (string) ($config['font_family'] ?? $this->family);
+        $width = (float) ($config['width'] ?? $config['max_width'] ?? 60);
+
+        $pdf->SetFont($family, $style, $fontSize);
+
+        return max(count($this->wrappedLines($pdf, $this->text($value), $width)), 1)
+            * $this->lineHeight($config, $fontSize);
+    }
+
+    /** @param array<string, mixed> $config */
+    private function lineHeight(array $config, float $fontSize): float
+    {
+        return max((float) ($config['line_height'] ?? ($fontSize * 0.4233)), 1);
+    }
+
+    /** @return list<string> */
+    private function wrappedLines(PdfCanvas $pdf, string $value, float $width): array
+    {
+        $lines = [];
+
+        foreach (preg_split('/\R/u', $value) ?: [''] as $paragraph) {
+            $words = preg_split('/\s+/u', trim($paragraph), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if ($words === []) {
+                $lines[] = '';
+
+                continue;
+            }
+
+            $line = '';
+
+            foreach ($words as $word) {
+                $candidate = $line === '' ? $word : $line.' '.$word;
+
+                if ($line === '' || $pdf->GetStringWidth($candidate) <= $width) {
+                    $line = $candidate;
+
+                    continue;
+                }
+
+                $lines[] = $line;
+                $line = $word;
+            }
+
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    private function continuedLine(PdfCanvas $pdf, string $line, float $width): string
+    {
+        $marker = ' ... (continued)';
+        $line = rtrim($line);
+
+        while ($line !== '' && $pdf->GetStringWidth($line.$marker) > $width) {
+            $line = mb_substr($line, 0, -1);
+        }
+
+        return rtrim($line).$marker;
+    }
+
+    private function rememberOverflow(string $label, string $value): void
+    {
+        if ($label === '' || $value === '') {
+            return;
+        }
+
+        $key = $label.':'.hash('sha256', $value);
+        $this->overflowSections[$key] = [
+            'label' => $this->overflowLabel($label),
+            'value' => $value,
+        ];
+    }
+
+    private function overflowLabel(string $label): string
+    {
+        if (preg_match('/^items\.([^#]+)#(\d+)$/', $label, $matches) === 1) {
+            return 'Item '.$matches[2].' — '.str($matches[1])->replace('_', ' ')->title();
+        }
+
+        return str($label)->replace('_', ' ')->title()->toString();
+    }
+
+    private function writeOverflowPages(PdfCanvas $pdf, Quotation $quotation): void
+    {
+        if ($this->overflowSections === []) {
+            return;
+        }
+
+        $pdf->SetAutoPageBreak(true, 15);
+        $pdf->SetMargins(15, 15, 15);
+        $pdf->AddPage('P', 'A4');
+        $pdf->SetFont($this->family, 'B', 14);
+        $pdf->MultiCell(180, 7, $this->text($quotation->quotation_no.' — Continued details'));
+        $pdf->Ln(3);
+
+        foreach ($this->overflowSections as $section) {
+            if ($pdf->GetY() > 260) {
+                $pdf->AddPage('P', 'A4');
+            }
+
+            $pdf->SetFont($this->family, 'B', 10);
+            $pdf->MultiCell(180, 5, $this->text($section['label']));
+            $pdf->SetFont($this->family, '', 9);
+            $pdf->MultiCell(180, 4.5, $this->text($section['value']));
+            $pdf->Ln(3);
+        }
     }
 
     /** TTF fonts take UTF-8 as-is; the Helvetica fallback needs cp1252. */
