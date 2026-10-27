@@ -172,6 +172,8 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
             ->name('task-labels.store');
         Route::post('work-boards/{work_board}/tasks', [WorkTaskController::class, 'store'])
             ->name('work-tasks.store');
+        Route::patch('work-boards/{work_board}/tasks/{work_task}', [WorkTaskController::class, 'update'])
+            ->name('work-tasks.update');
         Route::patch('work-boards/{work_board}/tasks/{work_task}/move', WorkTaskMoveController::class)
             ->name('work-tasks.move');
         Route::delete('work-boards/{work_board}/tasks/{work_task}', [WorkTaskController::class, 'destroy'])

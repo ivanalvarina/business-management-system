@@ -111,6 +111,7 @@ class WorkBoardController extends Controller
                 'editBoard' => $request->user()->can('update', $workBoard),
                 'deleteBoard' => $request->user()->can('delete', $workBoard),
                 'createTask' => $request->user()->can('work-tasks.create'),
+                'editTask' => $request->user()->can('work-tasks.edit'),
                 'deleteTask' => $request->user()->can('work-tasks.delete'),
                 'moveTask' => $request->user()->can('work-tasks.move'),
                 'assignTask' => $request->user()->can('work-tasks.assign'),

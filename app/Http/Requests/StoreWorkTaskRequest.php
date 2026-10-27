@@ -58,12 +58,14 @@ class StoreWorkTaskRequest extends FormRequest
             }
 
             $assignedTo = $this->integer('assigned_to');
+            $existingTask = $this->route('work_task');
+            $isChangingAssignee = ! $existingTask instanceof WorkTask || $existingTask->assigned_to !== $assignedTo;
 
             if ($assignedTo > 0 && ! $board->company->users()->where('is_active', true)->whereKey($assignedTo)->exists()) {
                 $validator->errors()->add('assigned_to', __('The assignee must be an active user with access to this company.'));
             }
 
-            if ($assignedTo > 0 && $assignedTo !== $this->user()->id && ! $this->user()->can('work-tasks.assign')) {
+            if ($assignedTo > 0 && $isChangingAssignee && $assignedTo !== $this->user()->id && ! $this->user()->can('work-tasks.assign')) {
                 $validator->errors()->add('assigned_to', __('You are not allowed to assign tasks to another user.'));
             }
 

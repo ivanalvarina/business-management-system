@@ -6,6 +6,7 @@ import {
     CalendarDays,
     FileImage,
     GripVertical,
+    Pencil,
     Plus,
     Save,
     Settings2,
@@ -37,6 +38,7 @@ import {
     destroy as taskDestroy,
     move,
     store as taskStore,
+    update as taskUpdate,
 } from '@/routes/work-tasks';
 import { destroy, index, update } from '@/routes/work-boards';
 
@@ -92,6 +94,7 @@ const props = defineProps<{
         editBoard: boolean;
         deleteBoard: boolean;
         createTask: boolean;
+        editTask: boolean;
         deleteTask: boolean;
         moveTask: boolean;
         assignTask: boolean;
@@ -110,6 +113,15 @@ defineOptions({
 
 const taskForm = useForm({
     work_board_column_id: props.board.columns[0]?.id ?? null,
+    assigned_to: null as number | null,
+    title: '',
+    description: '',
+    priority: 'normal' as Task['priority'],
+    due_date: '',
+    label_ids: [] as number[],
+});
+const editTaskForm = useForm({
+    work_board_column_id: null as number | null,
     assigned_to: null as number | null,
     title: '',
     description: '',
@@ -142,6 +154,7 @@ const assigneeFilter = ref<'all' | 'mine' | 'unassigned' | number>('all');
 const isTaskDialogOpen = ref(false);
 const isBoardSetupDialogOpen = ref(false);
 const selectedDetailsTask = ref<Task | null>(null);
+const editingTask = ref<Task | null>(null);
 
 const allTasks = computed(() =>
     props.board.columns.flatMap((column) => column.tasks),
@@ -201,6 +214,28 @@ const setTaskDialogOpen = (open: boolean) => {
     if (!open && !taskForm.processing) {
         taskForm.clearErrors();
     }
+};
+const startEditingTask = (task: Task) => {
+    editTaskForm.clearErrors();
+    editTaskForm.work_board_column_id = task.work_board_column_id;
+    editTaskForm.assigned_to = task.assigned_to;
+    editTaskForm.title = task.title;
+    editTaskForm.description = task.description ?? '';
+    editTaskForm.priority = task.priority;
+    editTaskForm.due_date = task.due_date?.slice(0, 10) ?? '';
+    editTaskForm.label_ids = task.labels.map((label) => label.id);
+    selectedDetailsTask.value = null;
+    editingTask.value = task;
+};
+const updateTask = () => {
+    if (!editingTask.value) return;
+
+    editTaskForm.patch(taskUpdate.url([props.board.id, editingTask.value.id]), {
+        preserveScroll: true,
+        onSuccess: () => {
+            editingTask.value = null;
+        },
+    });
 };
 const createColumn = () =>
     columnForm.post(columnStore.url(props.board.id), {
@@ -270,6 +305,12 @@ const selectEodTask = (task: Task) => {
     eodForm.clearErrors();
     eodForm.reset();
     eodForm.work_date = props.today;
+};
+const setEodDialogOpen = (open: boolean) => {
+    if (!open && !eodForm.processing) {
+        selectedTask.value = null;
+        eodForm.clearErrors();
+    }
 };
 const setScreenshots = (event: Event) => {
     eodForm.screenshots = Array.from(
@@ -550,7 +591,7 @@ const deleteBoard = () => {
                                                             "
                                                             class="mt-1 text-rose-600"
                                                         >
-                                                            Blocked:
+                                                            Issues encountered:
                                                             {{
                                                                 item.report
                                                                     .blockers
@@ -599,120 +640,140 @@ const deleteBoard = () => {
                     </div>
                 </div>
 
-                <section
-                    v-if="selectedTask"
-                    class="rounded-xl border bg-card p-5"
+                <Dialog
+                    :open="selectedTask !== null"
+                    @update:open="setEodDialogOpen"
                 >
-                    <div class="mb-4 flex items-start justify-between gap-3">
-                        <div>
-                            <h2 class="font-semibold">EOD update</h2>
-                            <p class="text-sm text-muted-foreground">
+                    <DialogScrollContent class="sm:max-w-2xl">
+                        <DialogHeader>
+                            <DialogTitle>EOD update</DialogTitle>
+                            <DialogDescription v-if="selectedTask">
                                 {{ selectedTask.title }}
-                            </p>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            @click="selectedTask = null"
-                            >Cancel</Button
+                            </DialogDescription>
+                        </DialogHeader>
+                        <form
+                            v-if="selectedTask"
+                            class="grid gap-4 md:grid-cols-2"
+                            @submit.prevent="submitEod"
                         >
-                    </div>
-                    <form
-                        class="grid gap-4 md:grid-cols-2"
-                        @submit.prevent="submitEod"
-                    >
-                        <div class="space-y-2">
-                            <label for="work-date" class="text-sm font-medium"
-                                >Work date</label
-                            ><Input
-                                id="work-date"
-                                v-model="eodForm.work_date"
-                                type="date"
-                                :max="today"
-                            /><InputError :message="eodForm.errors.work_date" />
-                        </div>
-                        <div class="space-y-2">
-                            <label for="minutes" class="text-sm font-medium"
-                                >Minutes spent (optional)</label
-                            ><Input
-                                id="minutes"
-                                v-model="eodForm.minutes_spent"
-                                type="number"
-                                min="1"
-                                max="1440"
-                            /><InputError
-                                :message="eodForm.errors.minutes_spent"
-                            />
-                        </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label
-                                for="accomplishment"
-                                class="text-sm font-medium"
-                                >What did you accomplish?</label
-                            ><textarea
-                                id="accomplishment"
-                                v-model="eodForm.accomplishment"
-                                rows="4"
-                                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            /><InputError
-                                :message="eodForm.errors.accomplishment"
-                            />
-                        </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="eod-summary" class="text-sm font-medium"
-                                >Daily summary (optional)</label
-                            ><textarea
-                                id="eod-summary"
-                                v-model="eodForm.summary"
-                                rows="2"
-                                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            /><InputError :message="eodForm.errors.summary" />
-                        </div>
-                        <div class="space-y-2">
-                            <label for="blockers" class="text-sm font-medium"
-                                >Blockers</label
-                            ><textarea
-                                id="blockers"
-                                v-model="eodForm.blockers"
-                                rows="3"
-                                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            />
-                        </div>
-                        <div class="space-y-2">
-                            <label for="next-plan" class="text-sm font-medium"
-                                >Next action</label
-                            ><textarea
-                                id="next-plan"
-                                v-model="eodForm.next_plan"
-                                rows="3"
-                                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            />
-                        </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="screenshots" class="text-sm font-medium"
-                                >Screenshots (up to 3, 5 MB each)</label
-                            ><Input
-                                id="screenshots"
-                                type="file"
-                                accept="image/png,image/jpeg,image/webp"
-                                multiple
-                                @change="setScreenshots"
-                            /><InputError
-                                :message="eodForm.errors.screenshots"
-                            /><progress
-                                v-if="eodForm.progress"
-                                class="h-2 w-full"
-                                :value="eodForm.progress.percentage"
-                                max="100"
-                            />
-                        </div>
-                        <div class="flex justify-end md:col-span-2">
-                            <Button type="submit" :disabled="eodForm.processing"
-                                ><Save /> Submit EOD</Button
-                            >
-                        </div>
-                    </form>
-                </section>
+                            <div class="space-y-2">
+                                <label
+                                    for="work-date"
+                                    class="text-sm font-medium"
+                                    >Work date</label
+                                ><Input
+                                    id="work-date"
+                                    v-model="eodForm.work_date"
+                                    type="date"
+                                    :max="today"
+                                /><InputError
+                                    :message="eodForm.errors.work_date"
+                                />
+                            </div>
+                            <div class="space-y-2">
+                                <label for="minutes" class="text-sm font-medium"
+                                    >Minutes spent (optional)</label
+                                ><Input
+                                    id="minutes"
+                                    v-model="eodForm.minutes_spent"
+                                    type="number"
+                                    min="1"
+                                    max="1440"
+                                /><InputError
+                                    :message="eodForm.errors.minutes_spent"
+                                />
+                            </div>
+                            <div class="space-y-2 md:col-span-2">
+                                <label
+                                    for="accomplishment"
+                                    class="text-sm font-medium"
+                                    >What did you accomplish?</label
+                                ><textarea
+                                    id="accomplishment"
+                                    v-model="eodForm.accomplishment"
+                                    rows="4"
+                                    class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                /><InputError
+                                    :message="eodForm.errors.accomplishment"
+                                />
+                            </div>
+                            <div class="space-y-2 md:col-span-2">
+                                <label
+                                    for="eod-summary"
+                                    class="text-sm font-medium"
+                                    >Daily summary (optional)</label
+                                ><textarea
+                                    id="eod-summary"
+                                    v-model="eodForm.summary"
+                                    rows="2"
+                                    class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                /><InputError
+                                    :message="eodForm.errors.summary"
+                                />
+                            </div>
+                            <div class="space-y-2">
+                                <label
+                                    for="blockers"
+                                    class="text-sm font-medium"
+                                    >Issues encountered (optional)</label
+                                ><textarea
+                                    id="blockers"
+                                    v-model="eodForm.blockers"
+                                    rows="3"
+                                    class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div class="space-y-2">
+                                <label
+                                    for="next-plan"
+                                    class="text-sm font-medium"
+                                    >Next steps (optional)</label
+                                ><textarea
+                                    id="next-plan"
+                                    v-model="eodForm.next_plan"
+                                    rows="3"
+                                    class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div class="space-y-2 md:col-span-2">
+                                <label
+                                    for="screenshots"
+                                    class="text-sm font-medium"
+                                    >Screenshots (up to 3, 5 MB each)</label
+                                ><Input
+                                    id="screenshots"
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    multiple
+                                    @change="setScreenshots"
+                                /><InputError
+                                    :message="eodForm.errors.screenshots"
+                                /><progress
+                                    v-if="eodForm.progress"
+                                    class="h-2 w-full"
+                                    :value="eodForm.progress.percentage"
+                                    max="100"
+                                />
+                            </div>
+                            <DialogFooter class="gap-2 md:col-span-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    :disabled="eodForm.processing"
+                                    @click="setEodDialogOpen(false)"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    :disabled="eodForm.processing"
+                                >
+                                    <Save /> Submit EOD
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogScrollContent>
+                </Dialog>
             </section>
 
             <Dialog
@@ -980,7 +1041,8 @@ const deleteBoard = () => {
                                         v-if="item.report.blockers"
                                         class="mt-2 text-rose-600"
                                     >
-                                        Blocked: {{ item.report.blockers }}
+                                        Issues encountered:
+                                        {{ item.report.blockers }}
                                     </p>
                                     <div
                                         v-if="item.attachments.length"
@@ -1009,19 +1071,48 @@ const deleteBoard = () => {
                                 class="mt-3 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground"
                             >
                                 No EOD updates yet.
+                                <template
+                                    v-if="
+                                        selectedDetailsTask.assigned_to ===
+                                            currentUserId && can.submitEod
+                                    "
+                                >
+                                    Use “Add today’s EOD” below to submit your
+                                    accomplishment.
+                                </template>
+                                <template
+                                    v-else-if="selectedDetailsTask.assignee"
+                                >
+                                    Only
+                                    {{ selectedDetailsTask.assignee.name }} can
+                                    submit an EOD update for this task.
+                                </template>
+                                <template v-else>
+                                    Assign this task to a user first.
+                                </template>
                             </p>
                         </div>
                     </div>
 
                     <DialogFooter class="gap-2 sm:justify-between">
-                        <Button
-                            v-if="can.deleteTask"
-                            type="button"
-                            variant="destructive"
-                            @click="removeTask(selectedDetailsTask)"
-                        >
-                            <Trash2 /> Delete task
-                        </Button>
+                        <div class="flex flex-col-reverse gap-2 sm:flex-row">
+                            <Button
+                                v-if="can.deleteTask"
+                                type="button"
+                                variant="destructive"
+                                @click="removeTask(selectedDetailsTask)"
+                            >
+                                <Trash2 /> Delete task
+                            </Button>
+                            <Button
+                                v-if="can.editTask"
+                                type="button"
+                                variant="outline"
+                                @click="startEditingTask(selectedDetailsTask)"
+                            >
+                                <Pencil /> Edit task
+                            </Button>
+                        </div>
                         <div class="flex flex-col-reverse gap-2 sm:flex-row">
                             <DialogClose as-child>
                                 <Button type="button" variant="outline">
@@ -1042,6 +1133,191 @@ const deleteBoard = () => {
                         </div>
                     </DialogFooter>
                 </template>
+            </DialogScrollContent>
+        </Dialog>
+
+        <Dialog
+            v-if="can.editTask"
+            :open="editingTask !== null"
+            @update:open="
+                (open) => {
+                    if (!open && !editTaskForm.processing) editingTask = null;
+                }
+            "
+        >
+            <DialogScrollContent class="sm:max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Edit task</DialogTitle>
+                    <DialogDescription>
+                        Update the task details, workflow column, assignment,
+                        and labels.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <form
+                    class="grid gap-4 md:grid-cols-2"
+                    @submit.prevent="updateTask"
+                >
+                    <div class="space-y-1.5 md:col-span-2">
+                        <label for="edit-task-title" class="text-sm font-medium"
+                            >Title</label
+                        >
+                        <Input
+                            id="edit-task-title"
+                            v-model="editTaskForm.title"
+                        />
+                        <InputError :message="editTaskForm.errors.title" />
+                    </div>
+
+                    <div class="space-y-1.5 md:col-span-2">
+                        <label
+                            for="edit-task-description"
+                            class="text-sm font-medium"
+                            >Description</label
+                        >
+                        <textarea
+                            id="edit-task-description"
+                            v-model="editTaskForm.description"
+                            rows="4"
+                            class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        />
+                        <InputError
+                            :message="editTaskForm.errors.description"
+                        />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label
+                            for="edit-task-column"
+                            class="text-sm font-medium"
+                            >Column</label
+                        >
+                        <select
+                            id="edit-task-column"
+                            v-model="editTaskForm.work_board_column_id"
+                            class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                            <option
+                                v-for="column in board.columns"
+                                :key="column.id"
+                                :value="column.id"
+                            >
+                                {{ column.name }}
+                            </option>
+                        </select>
+                        <InputError
+                            :message="editTaskForm.errors.work_board_column_id"
+                        />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label
+                            for="edit-task-priority"
+                            class="text-sm font-medium"
+                            >Priority</label
+                        >
+                        <select
+                            id="edit-task-priority"
+                            v-model="editTaskForm.priority"
+                            class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+                        >
+                            <option
+                                v-for="priority in priorities"
+                                :key="priority"
+                                :value="priority"
+                                class="capitalize"
+                            >
+                                {{ priority }}
+                            </option>
+                        </select>
+                        <InputError :message="editTaskForm.errors.priority" />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label
+                            for="edit-task-assignee"
+                            class="text-sm font-medium"
+                            >Assignee</label
+                        >
+                        <select
+                            id="edit-task-assignee"
+                            v-model="editTaskForm.assigned_to"
+                            class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                            <option :value="null">Unassigned</option>
+                            <option
+                                v-for="member in availableUsers"
+                                :key="member.id"
+                                :value="member.id"
+                                :disabled="
+                                    !can.assignTask &&
+                                    member.id !== currentUserId
+                                "
+                            >
+                                {{ member.name }}
+                            </option>
+                        </select>
+                        <InputError
+                            :message="editTaskForm.errors.assigned_to"
+                        />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label
+                            for="edit-task-due-date"
+                            class="text-sm font-medium"
+                            >Due date</label
+                        >
+                        <Input
+                            id="edit-task-due-date"
+                            v-model="editTaskForm.due_date"
+                            type="date"
+                        />
+                        <InputError :message="editTaskForm.errors.due_date" />
+                    </div>
+
+                    <div
+                        v-if="board.labels.length"
+                        class="space-y-2 md:col-span-2"
+                    >
+                        <p class="text-sm font-medium">Labels</p>
+                        <div class="flex flex-wrap gap-2">
+                            <label
+                                v-for="label in board.labels"
+                                :key="label.id"
+                                :class="[
+                                    'inline-flex cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 text-sm',
+                                    labelClass(label.color),
+                                ]"
+                            >
+                                <input
+                                    v-model="editTaskForm.label_ids"
+                                    type="checkbox"
+                                    :value="label.id"
+                                />
+                                {{ label.name }}
+                            </label>
+                        </div>
+                        <InputError :message="editTaskForm.errors.label_ids" />
+                    </div>
+
+                    <DialogFooter class="gap-2 md:col-span-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="editTaskForm.processing"
+                            @click="editingTask = null"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            :disabled="editTaskForm.processing"
+                        >
+                            <Save /> Save changes
+                        </Button>
+                    </DialogFooter>
+                </form>
             </DialogScrollContent>
         </Dialog>
 

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreWorkTaskRequest;
+use App\Http\Requests\UpdateWorkTaskRequest;
 use App\Models\WorkBoard;
+use App\Models\WorkBoardColumn;
 use App\Models\WorkTask;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,6 +34,37 @@ class WorkTaskController extends Controller
             $task->labels()->sync($request->validated('label_ids', []));
         });
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Task created.')]);
+
+        return back();
+    }
+
+    public function update(UpdateWorkTaskRequest $request, WorkBoard $workBoard, WorkTask $workTask): RedirectResponse
+    {
+        abort_unless($workTask->work_board_id === $workBoard->id, 404);
+
+        DB::transaction(function () use ($request, $workBoard, $workTask): void {
+            $column = WorkBoardColumn::query()
+                ->whereBelongsTo($workBoard, 'board')
+                ->lockForUpdate()
+                ->findOrFail($request->integer('work_board_column_id'));
+            $assignedTo = $request->integer('assigned_to');
+            $isMoving = $workTask->work_board_column_id !== $column->id;
+
+            if ($assignedTo > 0) {
+                $workBoard->members()->syncWithoutDetaching([$assignedTo]);
+            }
+
+            $workTask->update([
+                ...$request->safe()->only(['work_board_column_id', 'assigned_to', 'title', 'description', 'priority', 'due_date']),
+                'position' => $isMoving
+                    ? ((int) $column->tasks()->max('position')) + 1
+                    : $workTask->position,
+                'completed_at' => $column->is_done ? ($workTask->completed_at ?? now()) : null,
+            ]);
+            $workTask->labels()->sync($request->validated('label_ids', []));
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Task updated.')]);
 
         return back();
     }

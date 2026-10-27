@@ -112,6 +112,60 @@ test('tasks reject assignees without active access to the board company', functi
     expect(WorkTask::query()->doesntExist())->toBeTrue();
 });
 
+test('authorized users can update task details assignment column and labels', function () {
+    $user = userWithPermissions(['work-boards.view', 'work-tasks.edit', 'work-tasks.assign']);
+    $assignee = User::factory()->create();
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $assignee->companies()->attach($company);
+    $board = WorkBoard::factory()->for($company)->for($user, 'creator')->create();
+    $board->members()->attach($user);
+    $todo = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'To Do']);
+    $done = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'Done', 'is_done' => true]);
+    $oldLabel = TaskLabel::factory()->for($board, 'board')->create(['name' => 'Old']);
+    $newLabel = TaskLabel::factory()->for($board, 'board')->create(['name' => 'Urgent']);
+    $task = WorkTask::factory()->for($board, 'board')->for($todo, 'column')->for($user, 'creator')->create();
+    $task->labels()->attach($oldLabel);
+
+    $this->actingAs($user)->patch(route('work-tasks.update', [$board, $task]), [
+        'work_board_column_id' => $done->id,
+        'assigned_to' => $assignee->id,
+        'title' => 'Updated task title',
+        'description' => 'Updated task description',
+        'priority' => WorkTask::PRIORITY_HIGH,
+        'due_date' => '2026-10-30',
+        'label_ids' => [$newLabel->id],
+    ])->assertRedirect();
+
+    $task->refresh();
+
+    expect($task->title)->toBe('Updated task title')
+        ->and($task->work_board_column_id)->toBe($done->id)
+        ->and($task->assigned_to)->toBe($assignee->id)
+        ->and($task->priority)->toBe(WorkTask::PRIORITY_HIGH)
+        ->and($task->completed_at)->not->toBeNull()
+        ->and($task->labels()->sole()->id)->toBe($newLabel->id)
+        ->and($board->members()->whereKey($assignee->id)->exists())->toBeTrue();
+});
+
+test('users without task edit permission cannot update tasks', function () {
+    $user = userWithPermissions('work-boards.view');
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $board = WorkBoard::factory()->for($company)->for($user, 'creator')->create();
+    $board->members()->attach($user);
+    $column = WorkBoardColumn::factory()->for($board, 'board')->create();
+    $task = WorkTask::factory()->for($board, 'board')->for($column, 'column')->for($user, 'creator')->create();
+
+    $this->actingAs($user)->patch(route('work-tasks.update', [$board, $task]), [
+        'work_board_column_id' => $column->id,
+        'title' => 'Unauthorized change',
+        'priority' => WorkTask::PRIORITY_NORMAL,
+    ])->assertForbidden();
+
+    expect($task->fresh()->title)->not->toBe('Unauthorized change');
+});
+
 test('tasks reject columns and labels from another board', function () {
     $user = userWithPermissions(['work-boards.view', 'work-tasks.create']);
     $company = Company::factory()->create();
