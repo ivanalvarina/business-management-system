@@ -11,6 +11,8 @@ use App\Http\Controllers\CurrentCompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\EodAttachmentController;
+use App\Http\Controllers\EodReportController;
 use App\Http\Controllers\PayrollBulkPayslipController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\PayrollExportController;
@@ -22,7 +24,12 @@ use App\Http\Controllers\PurchaseRequestController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\ReceivingReceiptController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\TaskLabelController;
 use App\Http\Controllers\VendorController;
+use App\Http\Controllers\WorkBoardColumnController;
+use App\Http\Controllers\WorkBoardController;
+use App\Http\Controllers\WorkTaskController;
+use App\Http\Controllers\WorkTaskMoveController;
 use App\Models\Client;
 use App\Models\ClientPurchaseOrder;
 use App\Models\Company;
@@ -35,6 +42,7 @@ use App\Models\PurchaseRequest;
 use App\Models\Quotation;
 use App\Models\ReceivingReceipt;
 use App\Models\Vendor;
+use App\Models\WorkBoard;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -154,6 +162,31 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
         ->middlewareFor(['create', 'store'], 'can:create,'.Employee::class)
         ->middlewareFor(['edit', 'update'], 'can:update,employee')
         ->middlewareFor('destroy', 'can:delete,employee');
+
+    Route::scopeBindings()->group(function (): void {
+        Route::post('work-boards/{work_board}/columns', [WorkBoardColumnController::class, 'store'])
+            ->name('work-board-columns.store');
+        Route::delete('work-boards/{work_board}/columns/{column}', [WorkBoardColumnController::class, 'destroy'])
+            ->name('work-board-columns.destroy');
+        Route::post('work-boards/{work_board}/labels', [TaskLabelController::class, 'store'])
+            ->name('task-labels.store');
+        Route::post('work-boards/{work_board}/tasks', [WorkTaskController::class, 'store'])
+            ->name('work-tasks.store');
+        Route::patch('work-boards/{work_board}/tasks/{work_task}/move', WorkTaskMoveController::class)
+            ->name('work-tasks.move');
+        Route::delete('work-boards/{work_board}/tasks/{work_task}', [WorkTaskController::class, 'destroy'])
+            ->name('work-tasks.destroy');
+        Route::post('work-boards/{work_board}/tasks/{work_task}/eod', [EodReportController::class, 'store'])
+            ->name('eod-reports.store');
+    });
+    Route::get('eod-attachments/{eodAttachment}', EodAttachmentController::class)
+        ->name('eod-attachments.show');
+    Route::resource('work-boards', WorkBoardController::class)
+        ->only(['index', 'store', 'show', 'update', 'destroy'])
+        ->middlewareFor('index', 'can:viewAny,'.WorkBoard::class)
+        ->middlewareFor('show', 'can:view,work_board')
+        ->middlewareFor('update', 'can:update,work_board')
+        ->middlewareFor('destroy', 'can:delete,work_board');
 
     Route::patch('payrolls/{payroll}/finalize', [PayrollController::class, 'finalize'])
         ->middleware('can:finalize,payroll')

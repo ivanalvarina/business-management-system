@@ -87,6 +87,12 @@ class Company extends Model
         return $this->hasMany(Payroll::class);
     }
 
+    /** @return HasMany<WorkBoard, $this> */
+    public function workBoards(): HasMany
+    {
+        return $this->hasMany(WorkBoard::class);
+    }
+
     /**
      * @return MorphMany<Document, $this>
      */

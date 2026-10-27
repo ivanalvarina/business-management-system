@@ -16,8 +16,15 @@ type RoleOption = {
     name: string;
 };
 
+type CompanyOption = {
+    id: number;
+    company_code: string;
+    company_name: string;
+};
+
 defineProps<{
     roles: RoleOption[];
+    companies: CompanyOption[];
 }>();
 
 defineOptions({
@@ -36,12 +43,19 @@ const form = useForm({
     password_confirmation: '',
     is_active: true,
     roles: [] as number[],
+    company_ids: [] as number[],
 });
 
 const toggleRole = (roleId: number, checked: boolean) => {
     form.roles = checked
         ? [...form.roles, roleId]
         : form.roles.filter((id) => id !== roleId);
+};
+
+const toggleCompany = (companyId: number, checked: boolean) => {
+    form.company_ids = checked
+        ? [...form.company_ids, companyId]
+        : form.company_ids.filter((id) => id !== companyId);
 };
 
 const submit = () => form.submit(UserController.store());
@@ -124,6 +138,46 @@ const submit = () => form.submit(UserController.store());
                         />
                         Active account
                     </label>
+
+                    <div class="space-y-3">
+                        <div>
+                            <Label>Company access</Label>
+                            <p class="text-sm text-muted-foreground">
+                                The user will appear as a board member only in
+                                the selected companies.
+                            </p>
+                        </div>
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            <label
+                                v-for="company in companies"
+                                :key="company.id"
+                                class="flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm"
+                            >
+                                <Checkbox
+                                    class="mt-0.5"
+                                    :model-value="
+                                        form.company_ids.includes(company.id)
+                                    "
+                                    @update:model-value="
+                                        toggleCompany(
+                                            company.id,
+                                            Boolean($event),
+                                        )
+                                    "
+                                />
+                                <span class="min-w-0">
+                                    <span class="block font-medium">{{
+                                        company.company_name
+                                    }}</span>
+                                    <span
+                                        class="block text-xs text-muted-foreground"
+                                        >{{ company.company_code }}</span
+                                    >
+                                </span>
+                            </label>
+                        </div>
+                        <InputError :message="form.errors.company_ids" />
+                    </div>
 
                     <div class="space-y-3">
                         <Label>Roles</Label>

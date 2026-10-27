@@ -6,6 +6,7 @@ import {
     FileArchive,
     FileText,
     LayoutGrid,
+    ListTodo,
     Package,
     PhilippinePeso,
     ReceiptText,
@@ -48,6 +49,7 @@ import { index as quotationsIndex } from '@/routes/quotations';
 import { index as receivingReceiptsIndex } from '@/routes/receiving-receipts';
 import { index as reportsIndex } from '@/routes/reports';
 import { index as vendorsIndex } from '@/routes/vendors';
+import { index as workBoardsIndex } from '@/routes/work-boards';
 import type { NavSection } from '@/types';
 
 const page = usePage();
@@ -114,6 +116,17 @@ const navigationSections = computed<NavSection[]>(() =>
                     href: payrollsIndex(),
                     icon: PhilippinePeso,
                     permission: 'payrolls.view',
+                },
+            ],
+        },
+        {
+            title: 'Work Management',
+            items: [
+                {
+                    title: 'Boards & EOD',
+                    href: workBoardsIndex(),
+                    icon: ListTodo,
+                    permission: 'work-boards.view',
                 },
             ],
         },

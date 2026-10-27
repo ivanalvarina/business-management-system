@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -44,6 +45,24 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function companies(): BelongsToMany
     {
         return $this->belongsToMany(Company::class)->withTimestamps();
+    }
+
+    /** @return BelongsToMany<WorkBoard, $this> */
+    public function workBoards(): BelongsToMany
+    {
+        return $this->belongsToMany(WorkBoard::class, 'work_board_user')->withTimestamps();
+    }
+
+    /** @return HasMany<WorkTask, $this> */
+    public function assignedWorkTasks(): HasMany
+    {
+        return $this->hasMany(WorkTask::class, 'assigned_to');
+    }
+
+    /** @return HasMany<EodReport, $this> */
+    public function eodReports(): HasMany
+    {
+        return $this->hasMany(EodReport::class);
     }
 
     public function hasGlobalCompanyAccess(): bool

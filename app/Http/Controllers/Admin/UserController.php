@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Models\AuditLog;
+use App\Models\Company;
 use App\Models\User;
 use App\Support\AuditLogger;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -68,6 +70,7 @@ class UserController extends Controller
 
         return Inertia::render('admin/users/Create', [
             'roles' => $this->roleOptions(),
+            'companies' => $this->companyOptions($request->user()),
         ]);
     }
 
@@ -88,9 +91,11 @@ class UserController extends Controller
         $user->markEmailAsVerified();
 
         $this->syncRoles($user, $validated['roles'] ?? []);
+        $user->companies()->sync($validated['company_ids']);
         $audit->record('users', 'created', $user, newValues: [
             ...$user->only($this->auditedAttributes()),
             'role_ids' => $validated['roles'] ?? [],
+            'company_ids' => $validated['company_ids'],
         ], request: $request);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User created with a temporary password.')]);
 
@@ -131,7 +136,7 @@ class UserController extends Controller
     {
         $request->user()->can('users.edit') || abort(403);
 
-        $user->load('roles:id');
+        $user->load(['roles:id', 'companies:id']);
 
         return Inertia::render('admin/users/Edit', [
             'managedUser' => [
@@ -140,8 +145,10 @@ class UserController extends Controller
                 'email' => $user->email,
                 'is_active' => $user->is_active,
                 'roles' => $user->roles->pluck('id')->values(),
+                'company_ids' => $user->companies->pluck('id')->values(),
             ],
             'roles' => $this->roleOptions(),
+            'companies' => $this->companyOptions($request->user()),
         ]);
     }
 
@@ -154,6 +161,7 @@ class UserController extends Controller
         $oldValues = [
             ...$user->only($this->auditedAttributes()),
             'role_ids' => $user->roles()->pluck('roles.id')->all(),
+            'company_ids' => $user->companies()->pluck('companies.id')->all(),
         ];
 
         $user->update([
@@ -163,9 +171,11 @@ class UserController extends Controller
         ]);
 
         $this->syncRoles($user, $validated['roles'] ?? []);
+        $user->companies()->sync($validated['company_ids']);
         $audit->record('users', 'updated', $user, oldValues: $oldValues, newValues: [
             ...$user->only($this->auditedAttributes()),
             'role_ids' => $validated['roles'] ?? [],
+            'company_ids' => $validated['company_ids'],
         ], request: $request);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User updated.')]);
@@ -253,6 +263,25 @@ class UserController extends Controller
             ->map(fn (Role $role): array => [
                 'id' => (int) $role->id,
                 'name' => $role->name,
+            ])
+            ->all();
+    }
+
+    /**
+     * @return array<int, array{id: int, company_code: string, company_name: string}>
+     */
+    private function companyOptions(User $user): array
+    {
+        return Company::query()
+            ->active()
+            ->when(! $user->hasGlobalCompanyAccess(), fn (Builder $query) => $query
+                ->whereHas('users', fn (Builder $query) => $query->whereKey($user->id)))
+            ->orderBy('company_name')
+            ->get(['id', 'company_code', 'company_name'])
+            ->map(fn (Company $company): array => [
+                'id' => (int) $company->id,
+                'company_code' => $company->company_code,
+                'company_name' => $company->company_name,
             ])
             ->all();
     }
