@@ -34,8 +34,8 @@ class PayrollPeriod
         $scheduledPayDate = match ([$payrollGroup, $cutoffType]) {
             [Payroll::GROUP_REGULAR, Payroll::CUTOFF_FIRST_HALF] => $month->day(25),
             [Payroll::GROUP_REGULAR, Payroll::CUTOFF_SECOND_HALF] => $month->addMonthNoOverflow()->day(10),
-            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF] => $month->day(15),
-            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF] => $month->endOfMonth(),
+            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF] => $month->day(min(30, $month->daysInMonth)),
+            [Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF] => $month->addMonthNoOverflow()->day(15),
             default => throw new InvalidArgumentException('Unsupported payroll schedule.'),
         };
 

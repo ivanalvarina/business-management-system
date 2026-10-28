@@ -125,7 +125,7 @@ test('contractual payroll loads only contractual employees', function () {
 
     $payroll = Payroll::query()->sole();
 
-    expect($payroll->pay_date->toDateString())->toBe('2026-08-17')
+    expect($payroll->pay_date->toDateString())->toBe('2026-08-31')
         ->and($payroll->items()->sole()->employee_id)->toBe($contractual->id);
 });
 

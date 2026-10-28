@@ -15,16 +15,32 @@ it('calculates regular payroll schedules and moves weekend pay dates to the next
         ->and($secondHalf['pay_date']->toDateString())->toBe('2026-11-10');
 });
 
-it('calculates contractual schedules and moves weekend pay dates to the next working day', function () {
-    $firstHalf = PayrollPeriod::forCutoff('2026-08', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF);
-    $secondHalf = PayrollPeriod::forCutoff('2026-05', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF);
+it('calculates contractual payroll periods and pay dates', function () {
+    $firstHalf = PayrollPeriod::forCutoff('2026-09', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF);
+    $secondHalf = PayrollPeriod::forCutoff('2026-09', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF);
 
-    expect($firstHalf['period_start']->toDateString())->toBe('2026-08-01')
-        ->and($firstHalf['period_end']->toDateString())->toBe('2026-08-15')
-        ->and($firstHalf['pay_date']->toDateString())->toBe('2026-08-17')
-        ->and($secondHalf['period_start']->toDateString())->toBe('2026-05-16')
-        ->and($secondHalf['period_end']->toDateString())->toBe('2026-05-31')
-        ->and($secondHalf['pay_date']->toDateString())->toBe('2026-06-01');
+    expect($firstHalf['period_start']->toDateString())->toBe('2026-09-01')
+        ->and($firstHalf['period_end']->toDateString())->toBe('2026-09-15')
+        ->and($firstHalf['pay_date']->toDateString())->toBe('2026-09-30')
+        ->and($secondHalf['period_start']->toDateString())->toBe('2026-09-16')
+        ->and($secondHalf['period_end']->toDateString())->toBe('2026-09-30')
+        ->and($secondHalf['pay_date']->toDateString())->toBe('2026-10-15');
+});
+
+it('uses month end when a contractual first-half payout month has no thirtieth', function () {
+    $period = PayrollPeriod::forCutoff('2026-02', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_FIRST_HALF);
+
+    expect($period['period_start']->toDateString())->toBe('2026-02-01')
+        ->and($period['period_end']->toDateString())->toBe('2026-02-15')
+        ->and($period['pay_date']->toDateString())->toBe('2026-03-02');
+});
+
+it('rolls a contractual second-half payout into the next year', function () {
+    $period = PayrollPeriod::forCutoff('2026-12', Payroll::GROUP_CONTRACTUAL, Payroll::CUTOFF_SECOND_HALF);
+
+    expect($period['period_start']->toDateString())->toBe('2026-12-16')
+        ->and($period['period_end']->toDateString())->toBe('2026-12-31')
+        ->and($period['pay_date']->toDateString())->toBe('2027-01-15');
 });
 
 it('continues past saved holidays until the next working day', function () {

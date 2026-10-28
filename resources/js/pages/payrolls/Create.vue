@@ -76,14 +76,15 @@ const payrollDates = computed(() => {
     const periodEnd = isFirstHalf
         ? new Date(year, month - 1, 15)
         : new Date(year, month, 0);
+    const monthEndDay = new Date(year, month, 0).getDate();
     const scheduledPayDate =
         form.payroll_group === 'regular'
             ? isFirstHalf
                 ? new Date(year, month - 1, 25)
                 : new Date(year, month, 10)
             : isFirstHalf
-              ? new Date(year, month - 1, 15)
-              : new Date(year, month, 0);
+              ? new Date(year, month - 1, Math.min(30, monthEndDay))
+              : new Date(year, month, 15);
     const payDate = new Date(scheduledPayDate);
     const holidayDates = new Set(
         selectedCompany.value?.payroll_holidays.map((holiday) => holiday.date) ??
@@ -203,7 +204,7 @@ const submit = () => form.post(store.url());
                             {{
                                 form.payroll_group === 'regular'
                                     ? '→ 25th'
-                                    : '→ 15th'
+                                    : '→ 30th (month-end if needed)'
                             }}
                         </option>
                         <option value="second_half">
@@ -211,7 +212,7 @@ const submit = () => form.post(store.url());
                             {{
                                 form.payroll_group === 'regular'
                                     ? '→ 10th next month'
-                                    : '→ month-end'
+                                    : '→ 15th next month'
                             }}
                         </option>
                     </select>
