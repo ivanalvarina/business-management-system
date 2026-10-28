@@ -138,7 +138,7 @@ const submit = () => form.post(store.url());
         />
 
         <form
-            class="max-w-7xl space-y-6 rounded-xl border bg-card p-6"
+            class="max-w-8xl space-y-6 rounded-xl border bg-card p-6"
             @submit.prevent="submit"
         >
             <div class="space-y-2">
