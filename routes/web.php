@@ -16,7 +16,9 @@ use App\Http\Controllers\EodReportController;
 use App\Http\Controllers\PayrollBulkPayslipController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\PayrollExportController;
+use App\Http\Controllers\PayrollHolidayController;
 use App\Http\Controllers\PayrollPayslipController;
+use App\Http\Controllers\PayrollRegisterPdfController;
 use App\Http\Controllers\ProductServiceController;
 use App\Http\Controllers\PublicProductController;
 use App\Http\Controllers\PurchaseOrderController;
@@ -204,6 +206,14 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::get('payrolls/{payroll}/export', PayrollExportController::class)
         ->middleware('can:export,payroll')
         ->name('payrolls.export');
+    Route::get('payrolls/{payroll}/register/print', PayrollRegisterPdfController::class)
+        ->middleware('can:export,payroll')
+        ->name('payrolls.register.show');
+    Route::post('companies/{company}/payroll-holidays', [PayrollHolidayController::class, 'store'])
+        ->name('companies.payroll-holidays.store');
+    Route::delete('companies/{company}/payroll-holidays/{payrollHoliday}', [PayrollHolidayController::class, 'destroy'])
+        ->scopeBindings()
+        ->name('companies.payroll-holidays.destroy');
     Route::resource('payrolls', PayrollController::class)
         ->only(['index', 'create', 'store', 'show', 'update', 'destroy'])
         ->middlewareFor('index', 'can:viewAny,'.Payroll::class)

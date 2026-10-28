@@ -44,9 +44,19 @@ class PayrollController extends Controller
                 ->latest('period_end')
                 ->paginate(15)
                 ->withQueryString(),
+            'payrollHolidays' => $company?->payrollHolidays()
+                ->orderBy('date')
+                ->get(['id', 'date', 'name'])
+                ->map(fn ($holiday): array => [
+                    'id' => $holiday->id,
+                    'date' => $holiday->date->toDateString(),
+                    'name' => $holiday->name,
+                ])
+                ->all() ?? [],
             'can' => [
                 'create' => $request->user()->can('create', Payroll::class),
                 'delete' => $request->user()->can('payrolls.delete'),
+                'manageHolidays' => $request->user()->can('create', Payroll::class),
             ],
         ]);
     }
@@ -67,12 +77,13 @@ class PayrollController extends Controller
     public function store(StorePayrollRequest $request, PayrollCalculator $calculator): RedirectResponse
     {
         $payrollGroup = $request->string('payroll_group')->toString();
+        $company = Company::findOrFail($request->integer('company_id'));
         $period = PayrollPeriod::forCutoff(
             $request->string('payroll_month')->toString(),
             $payrollGroup,
             $request->string('cutoff_type')->toString(),
+            $company->payrollHolidays()->pluck('date')->all(),
         );
-        $company = Company::findOrFail($request->integer('company_id'));
 
         if (Payroll::whereBelongsTo($company)
             ->whereIn('payroll_group', [$payrollGroup, Payroll::GROUP_MIXED])
@@ -131,6 +142,7 @@ class PayrollController extends Controller
                     'pagibig_contribution' => 0,
                     'withholding_tax' => 0,
                     'other_deduction' => 0,
+                    'other_deductions' => [],
                     'allowance' => 0,
                 ];
 
@@ -182,9 +194,44 @@ class PayrollController extends Controller
             $lockedPayroll = Payroll::query()->lockForUpdate()->findOrFail($payroll->id);
             abort_unless($lockedPayroll->isDraft(), 409, __('Finalized payrolls cannot be changed.'));
 
-            foreach ($request->validated('items') as $submittedItem) {
-                $item = $lockedPayroll->items()->lockForUpdate()->findOrFail($submittedItem['id']);
+            foreach ($request->array('items') as $submittedItem) {
+                if (! is_array($submittedItem)) {
+                    continue;
+                }
+
+                $item = $lockedPayroll->items()
+                    ->whereKey($submittedItem['id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
                 $inputs = collect($submittedItem)->only(PayrollItem::INPUT_FIELDS)->all();
+
+                if (array_key_exists('other_deductions', $submittedItem)) {
+                    $submittedDeductions = $submittedItem['other_deductions'] ?? [];
+                    $inputs['other_deductions'] = [];
+
+                    if (is_array($submittedDeductions)) {
+                        foreach ($submittedDeductions as $deduction) {
+                            if (! is_array($deduction)) {
+                                continue;
+                            }
+
+                            $inputs['other_deductions'][] = [
+                                'type' => $deduction['type'],
+                                'amount' => number_format((float) $deduction['amount'], 2, '.', ''),
+                                'reference' => $deduction['reference'] ?? null,
+                                'remarks' => $deduction['remarks'] ?? null,
+                            ];
+                        }
+                    }
+
+                    $inputs['other_deduction'] = number_format(
+                        collect($inputs['other_deductions'])->sum(fn (array $deduction): float => (float) $deduction['amount']),
+                        2,
+                        '.',
+                        '',
+                    );
+                }
+
                 $values = [...$item->only(['monthly_basic_salary', 'hours_per_day', 'payroll_days_basis', 'monthly_workdays_divisor', 'annual_workdays_divisor', 'regular_ot_multiplier', 'special_holiday_multiplier', 'special_holiday_ot_multiplier', 'regular_holiday_multiplier', 'regular_holiday_ot_multiplier']), ...$inputs];
                 $item->update([...$inputs, ...$calculator->calculate($values)]);
             }
@@ -263,10 +310,11 @@ class PayrollController extends Controller
         return $this->companyQuery($user)->get()->map(fn (Company $company): array => $company->only(['id', 'company_code', 'company_name']))->all();
     }
 
-    /** @return array<int, array{id: int, company_code: string, company_name: string, regular_payroll_employees_count: int, contractual_payroll_employees_count: int}> */
+    /** @return array<int, array{id: int, company_code: string, company_name: string, regular_payroll_employees_count: int, contractual_payroll_employees_count: int, payroll_holidays: array<int, array{date: string, name: string}>}> */
     private function payrollCompanyOptions(User $user): array
     {
         return $this->companyQuery($user)
+            ->with(['payrollHolidays:id,company_id,date,name'])
             ->withCount([
                 'employees as regular_payroll_employees_count' => fn (Builder $query) => $query
                     ->where('status', Employee::STATUS_ACTIVE)
@@ -282,6 +330,12 @@ class PayrollController extends Controller
                 ...$company->only(['id', 'company_code', 'company_name']),
                 'regular_payroll_employees_count' => (int) $company->getAttribute('regular_payroll_employees_count'),
                 'contractual_payroll_employees_count' => (int) $company->getAttribute('contractual_payroll_employees_count'),
+                'payroll_holidays' => $company->payrollHolidays
+                    ->map(fn ($holiday): array => [
+                        'date' => $holiday->date->toDateString(),
+                        'name' => $holiday->name,
+                    ])
+                    ->all(),
             ])
             ->all();
     }

@@ -11,7 +11,7 @@ class PayrollPeriod
     /**
      * @return array{period_start: CarbonImmutable, period_end: CarbonImmutable, pay_date: CarbonImmutable}
      */
-    public static function forCutoff(string $payrollMonth, string $payrollGroup, string $cutoffType): array
+    public static function forCutoff(string $payrollMonth, string $payrollGroup, string $cutoffType, iterable $holidayDates = []): array
     {
         if (! in_array($payrollGroup, Payroll::creatableGroups(), true)) {
             throw new InvalidArgumentException('Payroll group must be regular or contractual.');
@@ -42,7 +42,7 @@ class PayrollPeriod
         return [
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
-            'pay_date' => self::previousWeekday($scheduledPayDate),
+            'pay_date' => self::nextWorkingDay($scheduledPayDate, $holidayDates),
         ];
     }
 
@@ -59,10 +59,20 @@ class PayrollPeriod
         return $count;
     }
 
-    private static function previousWeekday(CarbonImmutable $date): CarbonImmutable
+    /** @param iterable<CarbonImmutable|string> $holidayDates */
+    private static function nextWorkingDay(CarbonImmutable $date, iterable $holidayDates): CarbonImmutable
     {
-        while ($date->isWeekend()) {
-            $date = $date->subDay();
+        $holidays = collect($holidayDates)
+            ->mapWithKeys(function (CarbonImmutable|string $holidayDate): array {
+                $date = $holidayDate instanceof CarbonImmutable
+                    ? $holidayDate->toDateString()
+                    : CarbonImmutable::parse($holidayDate)->toDateString();
+
+                return [$date => true];
+            });
+
+        while ($date->isWeekend() || $holidays->has($date->toDateString())) {
+            $date = $date->addDay();
         }
 
         return $date;

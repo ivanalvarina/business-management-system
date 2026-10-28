@@ -35,6 +35,7 @@ class PayrollCsvExporter
         'Allowance',
         'Total Deductions',
         'Net Pay',
+        'Other Deduction Breakdown',
     ];
 
     /** @param resource $stream */
@@ -58,7 +59,7 @@ class PayrollCsvExporter
         $payroll->items()->cursor()->each(function (PayrollItem $item) use ($stream, &$totals): void {
             $row = $this->itemRow($item);
 
-            for ($index = 4; $index < count($row); $index++) {
+            for ($index = 4; $index < count(self::HEADERS) - 1; $index++) {
                 $totals[$index] += (float) $row[$index];
             }
 
@@ -68,7 +69,7 @@ class PayrollCsvExporter
         $totalRow = array_fill(0, count(self::HEADERS), '');
         $totalRow[1] = 'TOTAL';
 
-        for ($index = 4; $index < count($totalRow); $index++) {
+        for ($index = 4; $index < count($totalRow) - 1; $index++) {
             $totalRow[$index] = $this->number($totals[$index]);
         }
 
@@ -105,7 +106,21 @@ class PayrollCsvExporter
             $this->number($item->allowance),
             $this->number($item->total_deductions),
             $this->number($item->net_pay),
+            $this->otherDeductionBreakdown($item),
         ];
+    }
+
+    private function otherDeductionBreakdown(PayrollItem $item): string
+    {
+        return collect($item->itemizedOtherDeductions())
+            ->filter(fn (array $deduction): bool => $deduction['amount'] > 0)
+            ->map(function (array $deduction): string {
+                $label = PayrollItem::OTHER_DEDUCTION_LABELS[$deduction['type']] ?? 'Other';
+                $reference = filled($deduction['reference'] ?? null) ? ' #'.$deduction['reference'] : '';
+
+                return $label.$reference.': '.$this->number($deduction['amount']);
+            })
+            ->implode('; ');
     }
 
     /**

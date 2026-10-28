@@ -16,6 +16,7 @@ type Company = {
     company_name: string;
     regular_payroll_employees_count: number;
     contractual_payroll_employees_count: number;
+    payroll_holidays: { date: string; name: string }[];
 };
 
 const props = defineProps<{
@@ -58,6 +59,10 @@ const employeeGroupLabel = computed(() =>
         ? 'contractual'
         : 'regular and probationary',
 );
+const toDateKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+        date.getDate(),
+    ).padStart(2, '0')}`;
 
 const payrollDates = computed(() => {
     const [year, month] = form.payroll_month.split('-').map(Number);
@@ -80,11 +85,17 @@ const payrollDates = computed(() => {
               ? new Date(year, month - 1, 15)
               : new Date(year, month, 0);
     const payDate = new Date(scheduledPayDate);
+    const holidayDates = new Set(
+        selectedCompany.value?.payroll_holidays.map((holiday) => holiday.date) ??
+            [],
+    );
 
-    if (payDate.getDay() === 6) {
-        payDate.setDate(payDate.getDate() - 1);
-    } else if (payDate.getDay() === 0) {
-        payDate.setDate(payDate.getDate() - 2);
+    while (
+        payDate.getDay() === 0 ||
+        payDate.getDay() === 6 ||
+        holidayDates.has(toDateKey(payDate))
+    ) {
+        payDate.setDate(payDate.getDate() + 1);
     }
 
     return { periodStart, periodEnd, scheduledPayDate, payDate };
@@ -108,7 +119,7 @@ const computedPayDate = computed(() =>
         ? formatDate(payrollDates.value.payDate)
         : 'Select a payroll month',
 );
-const wasWeekendAdjusted = computed(
+const wasPayDateAdjusted = computed(
     () =>
         payrollDates.value !== null &&
         payrollDates.value.payDate.getTime() !==
@@ -218,10 +229,11 @@ const submit = () => form.post(store.url());
                         class="bg-muted"
                     />
                     <p
-                        v-if="wasWeekendAdjusted"
+                        v-if="wasPayDateAdjusted"
                         class="text-xs text-muted-foreground"
                     >
-                        Moved to Friday because the scheduled date is a weekend.
+                        Moved to the next working day because the scheduled date
+                        is a weekend or company holiday.
                     </p>
                 </div>
             </div>
@@ -232,8 +244,8 @@ const submit = () => form.post(store.url());
                 <div>
                     <p class="font-medium">{{ cutoffLabel }}</p>
                     <p class="text-muted-foreground">
-                        Monday–Friday attendance only. Weekend pay dates move to
-                        the previous Friday.
+                        Monday–Friday attendance only. Weekend and saved company
+                        holiday pay dates move to the next working day.
                     </p>
                 </div>
                 <div class="flex items-center gap-2 font-medium">

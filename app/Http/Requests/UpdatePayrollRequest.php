@@ -3,9 +3,11 @@
 namespace App\Http\Requests;
 
 use App\Models\Payroll;
+use App\Models\PayrollItem;
 use App\Support\PayrollPeriod;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class UpdatePayrollRequest extends FormRequest
@@ -43,6 +45,12 @@ class UpdatePayrollRequest extends FormRequest
             'items.*.pagibig_contribution' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999.99'],
             'items.*.withholding_tax' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999.99'],
             'items.*.other_deduction' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999.99'],
+            'items.*.other_deductions' => ['nullable', 'array', 'max:20'],
+            'items.*.other_deductions.*' => ['array:type,amount,reference,remarks'],
+            'items.*.other_deductions.*.type' => ['required', 'string', Rule::in(array_keys(PayrollItem::OTHER_DEDUCTION_LABELS))],
+            'items.*.other_deductions.*.amount' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:9999999999999.99'],
+            'items.*.other_deductions.*.reference' => ['nullable', 'string', 'max:100'],
+            'items.*.other_deductions.*.remarks' => ['nullable', 'string', 'max:255'],
             'items.*.allowance' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999.99'],
         ];
     }
@@ -58,7 +66,7 @@ class UpdatePayrollRequest extends FormRequest
             /** @var Payroll $payroll */
             $payroll = $this->route('payroll');
             $expectedIds = $payroll->items()->pluck('id')->sort()->values()->all();
-            $submittedItems = $this->input('items', []);
+            $submittedItems = $this->array('items');
             $submittedIds = collect($submittedItems)->pluck('id')->map(fn (mixed $id): int => (int) $id)->sort()->values()->all();
 
             if ($expectedIds !== $submittedIds) {

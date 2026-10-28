@@ -1,10 +1,25 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3';
-import { Eye, Plus, Trash2, WalletCards } from '@lucide/vue';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { CalendarDays, Eye, Plus, Trash2, WalletCards } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogScrollContent,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import InputError from '@/components/InputError.vue';
+import {
+    destroy as destroyHoliday,
+    store as storeHoliday,
+} from '@/routes/companies/payroll-holidays';
 import { create, destroy, index, show } from '@/routes/payrolls';
 
 type Company = { id: number; company_code: string; company_name: string };
@@ -20,13 +35,23 @@ type Payroll = {
     items_sum_gross_pay: string | null;
     items_sum_net_pay: string | null;
 };
+type PayrollHoliday = { id: number; date: string; name: string };
 
 const props = defineProps<{
     companies: Company[];
     filters: { company_id: number | null };
     payrolls: { data: Payroll[]; total: number };
-    can: { create: boolean; delete: boolean };
+    payrollHolidays: PayrollHoliday[];
+    can: { create: boolean; delete: boolean; manageHolidays: boolean };
 }>();
+
+const isHolidayDialogOpen = ref(false);
+const holidayForm = useForm({ date: '', name: '' });
+const selectedCompany = computed(() =>
+    props.companies.find(
+        (company) => company.id === Number(props.filters.company_id),
+    ),
+);
 
 defineOptions({
     layout: { breadcrumbs: [{ title: 'Payroll', href: index() }] },
@@ -68,6 +93,32 @@ const deletePayroll = (payroll: Payroll) => {
         preserveScroll: true,
     });
 };
+const addHoliday = () => {
+    if (!props.filters.company_id) {
+        return;
+    }
+
+    holidayForm.post(storeHoliday.url(props.filters.company_id), {
+        preserveScroll: true,
+        onSuccess: () => holidayForm.reset(),
+    });
+};
+const deleteHoliday = (holiday: PayrollHoliday) => {
+    if (
+        !props.filters.company_id ||
+        !window.confirm(`Remove ${holiday.name} from the payroll calendar?`)
+    ) {
+        return;
+    }
+
+    router.visit(
+        destroyHoliday({
+            company: props.filters.company_id,
+            payrollHoliday: holiday.id,
+        }),
+        { preserveScroll: true },
+    );
+};
 </script>
 
 <template>
@@ -78,6 +129,13 @@ const deletePayroll = (payroll: Payroll) => {
             description="Prepare semi-monthly payroll and employee payslips."
         >
             <template #actions>
+                <Button
+                    v-if="can.manageHolidays && filters.company_id"
+                    variant="outline"
+                    @click="isHolidayDialogOpen = true"
+                >
+                    <CalendarDays /> Holiday calendar
+                </Button>
                 <Button v-if="can.create" as-child
                     ><Link :href="create()"><Plus /> New payroll</Link></Button
                 >
@@ -207,5 +265,105 @@ const deletePayroll = (payroll: Payroll) => {
                 ><Link :href="create()"><Plus /> New payroll</Link></Button
             >
         </EmptyState>
+
+        <Dialog v-model:open="isHolidayDialogOpen">
+            <DialogScrollContent class="sm:max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Payroll holiday calendar</DialogTitle>
+                    <DialogDescription>
+                        {{ selectedCompany?.company_name }} holidays used when
+                        calculating the next working pay date.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <form
+                    class="space-y-2"
+                    @submit.prevent="addHoliday"
+                >
+                    <div
+                        class="grid items-end gap-4 sm:grid-cols-[1fr_1.5fr_auto]"
+                    >
+                        <div class="space-y-2">
+                            <label
+                                for="holiday-date"
+                                class="text-sm font-medium"
+                            >
+                                Date
+                            </label>
+                            <Input
+                                id="holiday-date"
+                                v-model="holidayForm.date"
+                                type="date"
+                                class="h-9"
+                            />
+                        </div>
+                        <div class="space-y-2">
+                            <label
+                                for="holiday-name"
+                                class="text-sm font-medium"
+                            >
+                                Holiday name
+                            </label>
+                            <Input
+                                id="holiday-name"
+                                v-model="holidayForm.name"
+                                placeholder="e.g. Bonifacio Day"
+                                class="h-9"
+                            />
+                        </div>
+                        <Button
+                            type="submit"
+                            class="h-9"
+                            :disabled="holidayForm.processing"
+                        >
+                            <Plus /> Add
+                        </Button>
+                    </div>
+
+                    <InputError :message="holidayForm.errors.date" />
+                    <InputError :message="holidayForm.errors.name" />
+                </form>
+
+                <div class="divide-y rounded-lg border">
+                    <div
+                        v-for="holiday in payrollHolidays"
+                        :key="holiday.id"
+                        class="flex items-center justify-between gap-4 p-3"
+                    >
+                        <div class="min-w-0">
+                            <p class="truncate font-medium">{{ holiday.name }}</p>
+                            <p class="text-sm text-muted-foreground">
+                                {{ date(holiday.date) }}
+                            </p>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            class="shrink-0 text-destructive hover:text-destructive"
+                            aria-label="Remove holiday"
+                            @click="deleteHoliday(holiday)"
+                        >
+                            <Trash2 />
+                        </Button>
+                    </div>
+                    <p
+                        v-if="payrollHolidays.length === 0"
+                        class="p-6 text-center text-sm text-muted-foreground"
+                    >
+                        No company holidays saved yet.
+                    </p>
+                </div>
+
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        @click="isHolidayDialogOpen = false"
+                    >
+                        Close
+                    </Button>
+                </DialogFooter>
+            </DialogScrollContent>
+        </Dialog>
     </div>
 </template>

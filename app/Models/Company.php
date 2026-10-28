@@ -87,6 +87,12 @@ class Company extends Model
         return $this->hasMany(Payroll::class);
     }
 
+    /** @return HasMany<PayrollHoliday, $this> */
+    public function payrollHolidays(): HasMany
+    {
+        return $this->hasMany(PayrollHoliday::class);
+    }
+
     /** @return HasMany<WorkBoard, $this> */
     public function workBoards(): HasMany
     {

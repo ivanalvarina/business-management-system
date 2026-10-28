@@ -3,6 +3,7 @@
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\Payroll;
+use App\Models\PayrollHoliday;
 use App\Models\PayrollItem;
 use App\Models\User;
 
@@ -45,7 +46,7 @@ test('payroll creation loads only active semi-monthly employees for the first-ha
 
     expect($payroll->period_start->toDateString())->toBe('2026-10-01')
         ->and($payroll->period_end->toDateString())->toBe('2026-10-15')
-        ->and($payroll->pay_date->toDateString())->toBe('2026-10-23')
+        ->and($payroll->pay_date->toDateString())->toBe('2026-10-26')
         ->and($payroll->payroll_group)->toBe(Payroll::GROUP_REGULAR)
         ->and($payroll->cutoff_type)->toBe(Payroll::CUTOFF_FIRST_HALF)
         ->and($payroll->items()->pluck('employee_id')->sort()->values()->all())
@@ -81,6 +82,27 @@ test('the second-half cutoff is paid on the tenth of the next month', function (
         ->and($payroll->pay_date->toDateString())->toBe('2026-11-10');
 });
 
+test('payroll creation skips saved company holidays after a weekend', function () {
+    $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    Employee::factory()->for($company)->create([
+        'employment_type' => Employee::EMPLOYMENT_REGULAR,
+    ]);
+    PayrollHoliday::factory()->for($company)->create(['date' => '2026-10-26']);
+
+    $this->actingAs($user)
+        ->post(route('payrolls.store'), [
+            'company_id' => $company->id,
+            'payroll_month' => '2026-10',
+            'payroll_group' => Payroll::GROUP_REGULAR,
+            'cutoff_type' => Payroll::CUTOFF_FIRST_HALF,
+        ])
+        ->assertRedirect();
+
+    expect(Payroll::query()->sole()->pay_date->toDateString())->toBe('2026-10-27');
+});
+
 test('contractual payroll loads only contractual employees', function () {
     $user = userWithPermissions(['payrolls.create', 'payrolls.view']);
     $company = Company::factory()->create();
@@ -103,7 +125,7 @@ test('contractual payroll loads only contractual employees', function () {
 
     $payroll = Payroll::query()->sole();
 
-    expect($payroll->pay_date->toDateString())->toBe('2026-08-14')
+    expect($payroll->pay_date->toDateString())->toBe('2026-08-17')
         ->and($payroll->items()->sole()->employee_id)->toBe($contractual->id);
 });
 
@@ -175,14 +197,68 @@ test('authorized users can save payroll inputs and computed amounts', function (
             'pagibig_contribution' => 200,
             'withholding_tax' => 400,
             'other_deduction' => 50,
+            'other_deductions' => [
+                [
+                    'type' => 'cash_advance',
+                    'amount' => 30,
+                    'reference' => 'CA-001',
+                    'remarks' => 'First installment',
+                ],
+                [
+                    'type' => 'equipment_accountability',
+                    'amount' => 20,
+                    'reference' => null,
+                    'remarks' => null,
+                ],
+            ],
             'allowance' => 500,
         ]]])
         ->assertRedirect(route('payrolls.show', $payroll));
 
     $item->refresh();
-    expect($item->gross_pay)->toBe(20203.56)
-        ->and($item->total_deductions)->toBe(2992.31)
-        ->and($item->net_pay)->toBe(17211.25);
+    expect($item->gross_pay)->toBe(20348.51)
+        ->and((float) $item->other_deduction)->toBe(50.0)
+        ->and($item->other_deductions)->toBe([
+            [
+                'type' => 'cash_advance',
+                'amount' => '30.00',
+                'reference' => 'CA-001',
+                'remarks' => 'First installment',
+            ],
+            [
+                'type' => 'equipment_accountability',
+                'amount' => '20.00',
+                'reference' => null,
+                'remarks' => null,
+            ],
+        ])
+        ->and($item->total_deductions)->toBe(3040.38)
+        ->and($item->net_pay)->toBe(17308.13);
+});
+
+test('payroll itemized deductions reject unsupported types and zero amounts', function () {
+    $user = userWithPermissions('payrolls.edit');
+    $payroll = Payroll::factory()->create();
+    $user->companies()->attach($payroll->company_id);
+    $item = payrollItemFor($payroll);
+
+    $payload = payrollInputPayload($item->id, [
+        'other_deductions' => [[
+            'type' => 'personal_expense',
+            'amount' => 0,
+            'reference' => null,
+            'remarks' => null,
+        ]],
+    ]);
+
+    $this->actingAs($user)
+        ->put(route('payrolls.update', $payroll), $payload)
+        ->assertSessionHasErrors([
+            'items.0.other_deductions.0.type',
+            'items.0.other_deductions.0.amount',
+        ]);
+
+    expect($item->fresh()->other_deductions)->toBeNull();
 });
 
 test('worked days use the payroll basis while absences use scheduled weekdays', function () {
@@ -383,6 +459,29 @@ test('bulk payslip preview remains a valid pdf when payroll has no employees', f
     expect($response->getContent())->toStartWith('%PDF-');
 });
 
+test('authorized users can preview a paginated payroll register pdf', function () {
+    $user = userWithPermissions('payrolls.export');
+    $payroll = Payroll::factory()->create();
+    $user->companies()->attach($payroll->company_id);
+
+    Employee::factory()
+        ->count(30)
+        ->for($payroll->company)
+        ->create()
+        ->each(fn (Employee $employee) => PayrollItem::factory()->for($payroll)->for($employee)->create());
+
+    $response = $this->actingAs($user)->get(route('payrolls.register.show', $payroll));
+
+    $response->assertOk()
+        ->assertHeader('Content-Type', 'application/pdf')
+        ->assertHeader(
+            'Content-Disposition',
+            'inline; filename="'.strtolower($payroll->company->company_code).'-'.$payroll->period_start->format('Y-m-d').'-'.$payroll->period_end->format('Y-m-d').'-payroll-register.pdf"',
+        );
+    expect($response->getContent())->toStartWith('%PDF-')
+        ->and(preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()))->toBeGreaterThan(1);
+});
+
 test('authorized users can export an Excel-compatible payroll report with totals', function () {
     $user = userWithPermissions('payrolls.export');
     $payroll = Payroll::factory()->create();
@@ -391,6 +490,13 @@ test('authorized users can export an Excel-compatible payroll report with totals
     PayrollItem::factory()->for($payroll)->for($employee)->create([
         'employee_number' => 'EMP-CSV-001',
         'employee_name' => '=2+2',
+        'other_deduction' => 750,
+        'other_deductions' => [[
+            'type' => 'cash_advance',
+            'amount' => '750.00',
+            'reference' => 'CA-009',
+            'remarks' => null,
+        ]],
     ]);
 
     $response = $this->actingAs($user)->get(route('payrolls.export', $payroll));
@@ -400,7 +506,7 @@ test('authorized users can export an Excel-compatible payroll report with totals
     $lines = preg_split('/\r\n|\n|\r/', trim($content));
     $totalRow = str_getcsv($lines[array_key_last($lines)], ',', '"', '');
 
-    expect($content)->toContain('Employee No.', 'EMP-CSV-001', "'=2+2")
+    expect($content)->toContain('Employee No.', 'EMP-CSV-001', "'=2+2", 'Cash advance #CA-009: 750.00')
         ->and($totalRow[1])->toBe('TOTAL')
         ->and($totalRow[25])->toBe('15000.00');
 });
@@ -414,6 +520,7 @@ test('payroll data is restricted to assigned companies', function () {
     $this->actingAs($user)->get(route('payrolls.payslips.show', [$payroll, $item]))->assertForbidden();
     $this->actingAs($user)->get(route('payrolls.payslips.bulk', $payroll))->assertForbidden();
     $this->actingAs($user)->get(route('payrolls.export', $payroll))->assertForbidden();
+    $this->actingAs($user)->get(route('payrolls.register.show', $payroll))->assertForbidden();
 });
 
 function payrollItemFor(Payroll $payroll): PayrollItem
@@ -423,7 +530,7 @@ function payrollItemFor(Payroll $payroll): PayrollItem
     return PayrollItem::factory()->for($payroll)->for($employee)->create();
 }
 
-/** @param array<string, int|float> $overrides */
+/** @param array<string, mixed> $overrides */
 function payrollInputPayload(int $itemId, array $overrides = []): array
 {
     return ['items' => [[
