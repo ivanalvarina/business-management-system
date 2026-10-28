@@ -96,7 +96,7 @@ class EmployeeController extends Controller
         );
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Employee created.')]);
 
-        return to_route('employees.edit', $employee);
+        return to_route('employees.index', ['company_id' => $employee->company_id]);
     }
 
     /**

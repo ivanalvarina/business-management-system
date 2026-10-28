@@ -22,7 +22,7 @@ test('authorized users can create payroll-ready employee master data', function 
             'first_name' => 'Juan',
             'last_name' => 'Dela Cruz',
         ]))
-        ->assertRedirect();
+        ->assertRedirect(route('employees.index', ['company_id' => $company->id]));
 
     $this->assertDatabaseHas('employees', [
         'company_id' => $company->id,
