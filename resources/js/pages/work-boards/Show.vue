@@ -392,7 +392,9 @@ const deleteBoard = () => {
 
 <template>
     <Head :title="board.name" />
-    <div class="flex min-w-0 flex-1 flex-col gap-6 p-4 md:p-6">
+    <div
+        class="flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden p-4 md:p-6"
+    >
         <PageHeader
             :title="board.name"
             :description="`${board.company.company_name} · ${board.description || 'Work board'}`"
@@ -414,11 +416,11 @@ const deleteBoard = () => {
             </template>
         </PageHeader>
 
-        <div class="min-w-0 space-y-4">
-            <section class="min-w-0 space-y-4">
+        <div class="min-h-0 min-w-0 flex-1">
+            <section class="flex h-full min-h-0 min-w-0 flex-col gap-4">
                 <div
                     v-if="isSuperAdmin"
-                    class="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+                    class="flex shrink-0 flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                     <div>
                         <p class="text-sm font-medium">Task view</p>
@@ -444,16 +446,20 @@ const deleteBoard = () => {
                         </option>
                     </select>
                 </div>
-                <div class="overflow-x-auto pb-3">
-                    <div class="flex min-w-max items-start gap-4">
+                <div
+                    class="min-h-0 flex-1 overflow-x-auto overflow-y-hidden pb-3"
+                >
+                    <div class="flex h-full min-w-max items-stretch gap-4">
                         <section
                             v-for="column in board.columns"
                             :key="column.id"
-                            class="w-80 shrink-0 rounded-xl border bg-muted/30 p-3"
+                            class="flex h-full w-80 shrink-0 flex-col overflow-hidden rounded-xl border bg-muted/30"
                             @dragover.prevent
                             @drop="dropTask(column.id)"
                         >
-                            <div class="mb-3 flex items-center justify-between">
+                            <div
+                                class="flex shrink-0 items-center justify-between border-b bg-muted/80 px-3 py-2.5 backdrop-blur-sm"
+                            >
                                 <h2 class="font-semibold">{{ column.name }}</h2>
                                 <div class="flex items-center gap-1">
                                     <span
@@ -475,7 +481,9 @@ const deleteBoard = () => {
                                 </div>
                             </div>
 
-                            <div class="space-y-3">
+                            <div
+                                class="min-h-0 flex-1 [scrollbar-gutter:stable] space-y-2 overflow-y-auto p-3"
+                            >
                                 <article
                                     v-for="task in visibleTasks(column)"
                                     :key="task.id"
@@ -520,12 +528,12 @@ const deleteBoard = () => {
                                             </div>
                                             <p
                                                 v-if="task.description"
-                                                class="mt-1 line-clamp-3 text-sm text-muted-foreground"
+                                                class="mt-1 line-clamp-2 text-sm text-muted-foreground"
                                             >
                                                 {{ task.description }}
                                             </p>
                                             <div
-                                                class="mt-3 flex flex-wrap gap-1.5"
+                                                class="mt-2 flex flex-wrap gap-1.5"
                                             >
                                                 <span
                                                     :class="[
@@ -554,7 +562,7 @@ const deleteBoard = () => {
                                                 >
                                             </div>
                                             <div
-                                                class="mt-3 space-y-1.5 text-xs text-muted-foreground"
+                                                class="mt-2 space-y-1 text-xs text-muted-foreground"
                                             >
                                                 <p
                                                     v-if="isSuperAdmin"
