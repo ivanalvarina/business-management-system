@@ -29,6 +29,7 @@ class MoveWorkTaskRequest extends FormRequest
     {
         return [
             'work_board_column_id' => ['required', 'integer', 'exists:work_board_columns,id'],
+            'before_task_id' => ['nullable', 'integer', 'exists:work_tasks,id'],
         ];
     }
 
@@ -45,6 +46,30 @@ class MoveWorkTaskRequest extends FormRequest
 
             if (! $board->columns()->whereKey($this->integer('work_board_column_id'))->exists()) {
                 $validator->errors()->add('work_board_column_id', __('Select a column from this board.'));
+            }
+
+            if ($validator->errors()->has('before_task_id') || ! $this->filled('before_task_id')) {
+                return;
+            }
+
+            $beforeTask = WorkTask::query()->find($this->integer('before_task_id'));
+            $movingTask = $this->route('work_task');
+
+            if (! $beforeTask instanceof WorkTask || ! $movingTask instanceof WorkTask) {
+                return;
+            }
+
+            if ($beforeTask->is($movingTask)) {
+                $validator->errors()->add('before_task_id', __('Select a different task position.'));
+
+                return;
+            }
+
+            if (
+                $beforeTask->work_board_id !== $board->id
+                || $beforeTask->work_board_column_id !== $this->integer('work_board_column_id')
+            ) {
+                $validator->errors()->add('before_task_id', __('Select a task position from the destination column.'));
             }
         }];
     }

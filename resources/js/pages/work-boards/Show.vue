@@ -14,7 +14,8 @@ import {
     UserRound,
     UsersRound,
 } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
@@ -88,6 +89,12 @@ type Board = {
     columns: Column[];
     created_by: number;
 };
+type ColumnScrollbar = {
+    isScrollable: boolean;
+    thumbHeight: number;
+    thumbOffset: number;
+};
+type ColumnTaskListTarget = Element | ComponentPublicInstance | null;
 
 const props = defineProps<{
     board: Board;
@@ -158,11 +165,135 @@ const eodForm = useForm({
     screenshots: [] as File[],
 });
 const draggedTaskId = ref<number | null>(null);
+const dragOverTaskId = ref<number | null>(null);
+const dragOverPlacement = ref<'before' | 'after'>('before');
 const assigneeFilter = ref<'all' | 'mine' | 'unassigned' | number>('all');
 const isTaskDialogOpen = ref(false);
 const isBoardSetupDialogOpen = ref(false);
 const selectedDetailsTask = ref<Task | null>(null);
 const editingTask = ref<Task | null>(null);
+const columnScrollbars = ref<Record<number, ColumnScrollbar>>({});
+const columnTaskLists = new Map<number, HTMLElement>();
+const columnResizeObservers = new Map<number, ResizeObserver>();
+const columnMutationObservers = new Map<number, MutationObserver>();
+const columnScrollHandlers = new Map<number, () => void>();
+const columnTaskListRefs = new Map<
+    number,
+    (target: ColumnTaskListTarget) => void
+>();
+
+const updateColumnScrollbar = (
+    columnId: number,
+    element: HTMLElement,
+): void => {
+    const viewportHeight = element.clientHeight;
+    const contentHeight = element.scrollHeight;
+    const isScrollable = contentHeight > viewportHeight + 1;
+
+    if (!isScrollable || viewportHeight <= 0) {
+        columnScrollbars.value[columnId] = {
+            isScrollable: false,
+            thumbHeight: 0,
+            thumbOffset: 0,
+        };
+
+        return;
+    }
+
+    const trackHeight = Math.max(viewportHeight - 16, 0);
+    const thumbHeight = Math.min(
+        trackHeight,
+        Math.max(28, (viewportHeight / contentHeight) * trackHeight),
+    );
+    const scrollRange = contentHeight - viewportHeight;
+    const thumbOffset =
+        scrollRange > 0
+            ? (element.scrollTop / scrollRange) * (trackHeight - thumbHeight)
+            : 0;
+
+    columnScrollbars.value[columnId] = {
+        isScrollable: true,
+        thumbHeight,
+        thumbOffset,
+    };
+};
+
+const removeColumnTaskList = (columnId: number): void => {
+    const element = columnTaskLists.get(columnId);
+    const scrollHandler = columnScrollHandlers.get(columnId);
+
+    if (element && scrollHandler) {
+        element.removeEventListener('scroll', scrollHandler);
+    }
+
+    columnResizeObservers.get(columnId)?.disconnect();
+    columnMutationObservers.get(columnId)?.disconnect();
+    columnTaskLists.delete(columnId);
+    columnResizeObservers.delete(columnId);
+    columnMutationObservers.delete(columnId);
+    columnScrollHandlers.delete(columnId);
+    delete columnScrollbars.value[columnId];
+};
+
+const setColumnTaskList = (
+    columnId: number,
+    target: ColumnTaskListTarget,
+): void => {
+    if (
+        target instanceof HTMLElement &&
+        columnTaskLists.get(columnId) === target
+    ) {
+        return;
+    }
+
+    removeColumnTaskList(columnId);
+
+    if (!(target instanceof HTMLElement)) {
+        return;
+    }
+
+    const updateScrollbar = () => updateColumnScrollbar(columnId, target);
+    const resizeObserver = new ResizeObserver(updateScrollbar);
+    const mutationObserver = new MutationObserver(() =>
+        requestAnimationFrame(updateScrollbar),
+    );
+
+    columnTaskLists.set(columnId, target);
+    columnResizeObservers.set(columnId, resizeObserver);
+    columnMutationObservers.set(columnId, mutationObserver);
+    columnScrollHandlers.set(columnId, updateScrollbar);
+    target.addEventListener('scroll', updateScrollbar, { passive: true });
+    resizeObserver.observe(target);
+    mutationObserver.observe(target, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+    });
+    requestAnimationFrame(updateScrollbar);
+};
+
+const getColumnTaskListRef = (
+    columnId: number,
+): ((target: ColumnTaskListTarget) => void) => {
+    const existingRef = columnTaskListRefs.get(columnId);
+
+    if (existingRef) {
+        return existingRef;
+    }
+
+    const taskListRef = (target: ColumnTaskListTarget) =>
+        setColumnTaskList(columnId, target);
+
+    columnTaskListRefs.set(columnId, taskListRef);
+
+    return taskListRef;
+};
+
+onBeforeUnmount(() => {
+    [...columnTaskLists.keys()].forEach(removeColumnTaskList);
+    columnTaskListRefs.clear();
+});
 
 const allTasks = computed(() =>
     props.board.columns.flatMap((column) => column.tasks),
@@ -325,18 +456,74 @@ const createLabel = () =>
     });
 const saveSettings = () =>
     settingsForm.patch(update.url(props.board.id), { preserveScroll: true });
-const moveTask = (task: Task, columnId: number) => {
-    if (!props.can.moveTask || task.work_board_column_id === columnId) return;
+const moveTask = (
+    task: Task,
+    columnId: number,
+    beforeTaskId: number | null,
+) => {
+    if (!props.can.moveTask) return;
+
     router.patch(
         move.url([props.board.id, task.id]),
-        { work_board_column_id: columnId },
+        {
+            work_board_column_id: columnId,
+            before_task_id: beforeTaskId,
+        },
         { preserveScroll: true },
     );
 };
-const dropTask = (columnId: number) => {
-    const task = allTasks.value.find((item) => item.id === draggedTaskId.value);
-    if (task) moveTask(task, columnId);
+const resetTaskDrag = () => {
     draggedTaskId.value = null;
+    dragOverTaskId.value = null;
+    dragOverPlacement.value = 'before';
+};
+const startDraggingTask = (event: DragEvent, task: Task) => {
+    draggedTaskId.value = task.id;
+
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(task.id));
+    }
+};
+const setTaskDropTarget = (event: DragEvent, task: Task) => {
+    if (draggedTaskId.value === task.id) return;
+
+    const target = event.currentTarget as HTMLElement;
+    const bounds = target.getBoundingClientRect();
+
+    dragOverTaskId.value = task.id;
+    dragOverPlacement.value =
+        event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
+};
+const dropTaskAtEnd = (columnId: number) => {
+    const task = allTasks.value.find((item) => item.id === draggedTaskId.value);
+
+    if (task) moveTask(task, columnId, null);
+
+    resetTaskDrag();
+};
+const dropTaskOnTask = (column: Column, targetTask: Task) => {
+    const task = allTasks.value.find((item) => item.id === draggedTaskId.value);
+
+    if (!task || task.id === targetTask.id) {
+        resetTaskDrag();
+
+        return;
+    }
+
+    const beforeTaskId =
+        dragOverPlacement.value === 'before'
+            ? targetTask.id
+            : (visibleTasks(column)
+                  .slice(
+                      visibleTasks(column).findIndex(
+                          (item) => item.id === targetTask.id,
+                      ) + 1,
+                  )
+                  .find((item) => item.id !== task.id)?.id ?? null);
+
+    moveTask(task, column.id, beforeTaskId);
+    resetTaskDrag();
 };
 const removeTask = (task: Task) => {
     if (
@@ -393,7 +580,7 @@ const deleteBoard = () => {
 <template>
     <Head :title="board.name" />
     <div
-        class="flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden p-4 md:p-6"
+        class="flex h-[calc(100dvh-4rem)] max-h-[calc(100dvh-4rem)] min-h-0 min-w-0 shrink-0 flex-col gap-4 overflow-hidden p-4 md:p-6"
     >
         <PageHeader
             :title="board.name"
@@ -455,7 +642,7 @@ const deleteBoard = () => {
                             :key="column.id"
                             class="flex h-full w-80 shrink-0 flex-col overflow-hidden rounded-xl border bg-muted/30"
                             @dragover.prevent
-                            @drop="dropTask(column.id)"
+                            @drop="dropTaskAtEnd(column.id)"
                         >
                             <div
                                 class="flex shrink-0 items-center justify-between border-b bg-muted/80 px-3 py-2.5 backdrop-blur-sm"
@@ -481,236 +668,286 @@ const deleteBoard = () => {
                                 </div>
                             </div>
 
-                            <div
-                                class="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] space-y-2 overflow-y-auto overscroll-contain p-3 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent"
-                            >
-                                <article
-                                    v-for="task in visibleTasks(column)"
-                                    :key="task.id"
-                                    :draggable="can.moveTask"
-                                    role="button"
-                                    tabindex="0"
-                                    class="cursor-pointer rounded-lg border bg-card p-3 shadow-xs transition hover:border-foreground/20 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                                    @click="selectedDetailsTask = task"
-                                    @keydown.enter.prevent="
-                                        selectedDetailsTask = task
-                                    "
-                                    @dragstart="draggedTaskId = task.id"
-                                    @dragend="draggedTaskId = null"
+                            <div class="relative min-h-0 flex-1">
+                                <div
+                                    :ref="getColumnTaskListRef(column.id)"
+                                    class="h-full [scrollbar-width:none] space-y-2 overflow-y-auto overscroll-contain p-3 [&::-webkit-scrollbar]:hidden"
                                 >
-                                    <div class="flex items-start gap-2">
-                                        <GripVertical
-                                            v-if="can.moveTask"
-                                            class="mt-0.5 size-4 shrink-0 cursor-grab text-muted-foreground"
-                                        />
-                                        <div class="min-w-0 flex-1">
-                                            <div
-                                                class="flex items-start justify-between gap-2"
-                                            >
-                                                <h3
-                                                    class="leading-snug font-medium"
+                                    <article
+                                        v-for="task in visibleTasks(column)"
+                                        :key="task.id"
+                                        :draggable="can.moveTask"
+                                        role="button"
+                                        tabindex="0"
+                                        :class="[
+                                            'relative cursor-pointer rounded-lg border bg-card p-3 shadow-xs transition hover:border-foreground/20 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                                            draggedTaskId === task.id &&
+                                                'opacity-50',
+                                            dragOverTaskId === task.id &&
+                                                'ring-2 ring-primary',
+                                        ]"
+                                        @click="selectedDetailsTask = task"
+                                        @keydown.enter.prevent="
+                                            selectedDetailsTask = task
+                                        "
+                                        @dragstart="
+                                            startDraggingTask($event, task)
+                                        "
+                                        @dragover.prevent.stop="
+                                            setTaskDropTarget($event, task)
+                                        "
+                                        @drop.prevent.stop="
+                                            dropTaskOnTask(column, task)
+                                        "
+                                        @dragend="resetTaskDrag"
+                                    >
+                                        <div class="flex items-start gap-2">
+                                            <GripVertical
+                                                v-if="can.moveTask"
+                                                class="mt-0.5 size-4 shrink-0 cursor-grab text-muted-foreground"
+                                            />
+                                            <div class="min-w-0 flex-1">
+                                                <div
+                                                    class="flex items-start justify-between gap-2"
                                                 >
-                                                    {{ task.title }}
-                                                </h3>
+                                                    <h3
+                                                        class="leading-snug font-medium"
+                                                    >
+                                                        {{ task.title }}
+                                                    </h3>
+                                                    <Button
+                                                        v-if="
+                                                            can.deleteTask &&
+                                                            canManageTask(task)
+                                                        "
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        class="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                                        @click.stop="
+                                                            removeTask(task)
+                                                        "
+                                                        ><Trash2
+                                                            class="size-3.5"
+                                                    /></Button>
+                                                </div>
+                                                <p
+                                                    v-if="task.description"
+                                                    class="mt-1 line-clamp-2 text-sm text-muted-foreground"
+                                                >
+                                                    {{ task.description }}
+                                                </p>
+                                                <div
+                                                    class="mt-2 flex flex-wrap gap-1.5"
+                                                >
+                                                    <span
+                                                        :class="[
+                                                            'rounded-full px-2 py-0.5 text-xs font-medium capitalize',
+                                                            priorityClass(
+                                                                task.priority,
+                                                            ),
+                                                        ]"
+                                                    >
+                                                        <AlertTriangle
+                                                            v-if="
+                                                                task.priority ===
+                                                                'urgent'
+                                                            "
+                                                            class="mr-1 inline size-3"
+                                                        />{{ task.priority }}
+                                                    </span>
+                                                    <span
+                                                        v-for="label in task.labels"
+                                                        :key="label.id"
+                                                        :class="[
+                                                            'rounded-full px-2 py-0.5 text-xs',
+                                                            labelClass(
+                                                                label.color,
+                                                            ),
+                                                        ]"
+                                                        >{{ label.name }}</span
+                                                    >
+                                                </div>
+                                                <div
+                                                    class="mt-2 space-y-1 text-xs text-muted-foreground"
+                                                >
+                                                    <p
+                                                        v-if="isSuperAdmin"
+                                                        class="flex items-center gap-1.5"
+                                                    >
+                                                        <UserRound
+                                                            class="size-3.5"
+                                                        />{{
+                                                            task.assignee
+                                                                ?.name ||
+                                                            'Unassigned'
+                                                        }}
+                                                    </p>
+                                                    <p
+                                                        v-if="
+                                                            task.collaborators
+                                                                .length
+                                                        "
+                                                        class="flex items-center gap-1.5"
+                                                    >
+                                                        <UsersRound
+                                                            class="size-3.5"
+                                                        />
+                                                        {{
+                                                            collaboratorSummary(
+                                                                task,
+                                                            )
+                                                        }}
+                                                    </p>
+                                                    <p
+                                                        v-if="task.due_date"
+                                                        class="flex items-center gap-1.5"
+                                                    >
+                                                        <CalendarDays
+                                                            class="size-3.5"
+                                                        />Due
+                                                        {{
+                                                            formatDate(
+                                                                task.due_date,
+                                                            )
+                                                        }}
+                                                    </p>
+                                                </div>
+
                                                 <Button
                                                     v-if="
-                                                        can.deleteTask &&
-                                                        canManageTask(task)
-                                                    "
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    class="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                                    @click.stop="
-                                                        removeTask(task)
-                                                    "
-                                                    ><Trash2 class="size-3.5"
-                                                /></Button>
-                                            </div>
-                                            <p
-                                                v-if="task.description"
-                                                class="mt-1 line-clamp-2 text-sm text-muted-foreground"
-                                            >
-                                                {{ task.description }}
-                                            </p>
-                                            <div
-                                                class="mt-2 flex flex-wrap gap-1.5"
-                                            >
-                                                <span
-                                                    :class="[
-                                                        'rounded-full px-2 py-0.5 text-xs font-medium capitalize',
-                                                        priorityClass(
-                                                            task.priority,
-                                                        ),
-                                                    ]"
-                                                >
-                                                    <AlertTriangle
-                                                        v-if="
-                                                            task.priority ===
-                                                            'urgent'
-                                                        "
-                                                        class="mr-1 inline size-3"
-                                                    />{{ task.priority }}
-                                                </span>
-                                                <span
-                                                    v-for="label in task.labels"
-                                                    :key="label.id"
-                                                    :class="[
-                                                        'rounded-full px-2 py-0.5 text-xs',
-                                                        labelClass(label.color),
-                                                    ]"
-                                                    >{{ label.name }}</span
-                                                >
-                                            </div>
-                                            <div
-                                                class="mt-2 space-y-1 text-xs text-muted-foreground"
-                                            >
-                                                <p
-                                                    v-if="isSuperAdmin"
-                                                    class="flex items-center gap-1.5"
-                                                >
-                                                    <UserRound
-                                                        class="size-3.5"
-                                                    />{{
-                                                        task.assignee?.name ||
-                                                        'Unassigned'
-                                                    }}
-                                                </p>
-                                                <p
-                                                    v-if="
-                                                        task.collaborators
-                                                            .length
-                                                    "
-                                                    class="flex items-center gap-1.5"
-                                                >
-                                                    <UsersRound
-                                                        class="size-3.5"
-                                                    />
-                                                    {{
-                                                        collaboratorSummary(
+                                                        canSubmitEodForTask(
                                                             task,
                                                         )
-                                                    }}
-                                                </p>
-                                                <p
-                                                    v-if="task.due_date"
-                                                    class="flex items-center gap-1.5"
+                                                    "
+                                                    variant="outline"
+                                                    size="sm"
+                                                    class="mt-2 w-full"
+                                                    @click.stop="
+                                                        selectEodTask(task)
+                                                    "
+                                                    ><Save /> Add today’s
+                                                    EOD</Button
                                                 >
-                                                    <CalendarDays
-                                                        class="size-3.5"
-                                                    />Due
-                                                    {{
-                                                        formatDate(
-                                                            task.due_date,
-                                                        )
-                                                    }}
-                                                </p>
-                                            </div>
 
-                                            <Button
-                                                v-if="canSubmitEodForTask(task)"
-                                                variant="outline"
-                                                size="sm"
-                                                class="mt-2 w-full"
-                                                @click.stop="
-                                                    selectEodTask(task)
-                                                "
-                                                ><Save /> Add today’s
-                                                EOD</Button
-                                            >
-
-                                            <details
-                                                v-if="task.eod_items.length"
-                                                class="mt-3 border-t pt-2"
-                                                @click.stop
-                                            >
-                                                <summary
-                                                    class="cursor-pointer text-xs font-medium"
+                                                <details
+                                                    v-if="task.eod_items.length"
+                                                    class="mt-3 border-t pt-2"
+                                                    @click.stop
                                                 >
-                                                    {{ task.eod_items.length }}
-                                                    recent EOD update{{
-                                                        task.eod_items
-                                                            .length === 1
-                                                            ? ''
-                                                            : 's'
-                                                    }}
-                                                </summary>
-                                                <div class="mt-2 space-y-2">
-                                                    <div
-                                                        v-for="item in task.eod_items"
-                                                        :key="item.id"
-                                                        class="rounded-md bg-muted/50 p-2 text-xs"
+                                                    <summary
+                                                        class="cursor-pointer text-xs font-medium"
                                                     >
-                                                        <p class="font-medium">
-                                                            {{
-                                                                item.report.user
-                                                                    .name
-                                                            }}
-                                                            ·
-                                                            {{
-                                                                formatDate(
-                                                                    item.report
-                                                                        .work_date,
-                                                                )
-                                                            }}
-                                                        </p>
-                                                        <p
-                                                            class="mt-1 whitespace-pre-wrap text-muted-foreground"
-                                                        >
-                                                            {{
-                                                                item.accomplishment
-                                                            }}
-                                                        </p>
-                                                        <p
-                                                            v-if="
-                                                                item.report
-                                                                    .blockers
-                                                            "
-                                                            class="mt-1 text-rose-600"
-                                                        >
-                                                            Issues encountered:
-                                                            {{
-                                                                item.report
-                                                                    .blockers
-                                                            }}
-                                                        </p>
+                                                        {{
+                                                            task.eod_items
+                                                                .length
+                                                        }}
+                                                        recent EOD update{{
+                                                            task.eod_items
+                                                                .length === 1
+                                                                ? ''
+                                                                : 's'
+                                                        }}
+                                                    </summary>
+                                                    <div class="mt-2 space-y-2">
                                                         <div
-                                                            v-if="
-                                                                item.attachments
-                                                                    .length
-                                                            "
-                                                            class="mt-2 flex flex-wrap gap-1"
+                                                            v-for="item in task.eod_items"
+                                                            :key="item.id"
+                                                            class="rounded-md bg-muted/50 p-2 text-xs"
                                                         >
-                                                            <a
-                                                                v-for="attachment in item.attachments"
-                                                                :key="
-                                                                    attachment.id
-                                                                "
-                                                                :href="
-                                                                    attachmentShow.url(
-                                                                        attachment.id,
-                                                                    )
-                                                                "
-                                                                target="_blank"
-                                                                rel="noopener"
-                                                                class="inline-flex items-center gap-1 rounded border bg-background px-2 py-1 hover:bg-accent"
-                                                                ><FileImage
-                                                                    class="size-3"
-                                                                />
-                                                                Screenshot</a
+                                                            <p
+                                                                class="font-medium"
                                                             >
+                                                                {{
+                                                                    item.report
+                                                                        .user
+                                                                        .name
+                                                                }}
+                                                                ·
+                                                                {{
+                                                                    formatDate(
+                                                                        item
+                                                                            .report
+                                                                            .work_date,
+                                                                    )
+                                                                }}
+                                                            </p>
+                                                            <p
+                                                                class="mt-1 whitespace-pre-wrap text-muted-foreground"
+                                                            >
+                                                                {{
+                                                                    item.accomplishment
+                                                                }}
+                                                            </p>
+                                                            <p
+                                                                v-if="
+                                                                    item.report
+                                                                        .blockers
+                                                                "
+                                                                class="mt-1 text-rose-600"
+                                                            >
+                                                                Issues
+                                                                encountered:
+                                                                {{
+                                                                    item.report
+                                                                        .blockers
+                                                                }}
+                                                            </p>
+                                                            <div
+                                                                v-if="
+                                                                    item
+                                                                        .attachments
+                                                                        .length
+                                                                "
+                                                                class="mt-2 flex flex-wrap gap-1"
+                                                            >
+                                                                <a
+                                                                    v-for="attachment in item.attachments"
+                                                                    :key="
+                                                                        attachment.id
+                                                                    "
+                                                                    :href="
+                                                                        attachmentShow.url(
+                                                                            attachment.id,
+                                                                        )
+                                                                    "
+                                                                    target="_blank"
+                                                                    rel="noopener"
+                                                                    class="inline-flex items-center gap-1 rounded border bg-background px-2 py-1 hover:bg-accent"
+                                                                    ><FileImage
+                                                                        class="size-3"
+                                                                    />
+                                                                    Screenshot</a
+                                                                >
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </details>
+                                                </details>
+                                            </div>
                                         </div>
-                                    </div>
-                                </article>
-                                <p
-                                    v-if="!visibleTasks(column).length"
-                                    class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"
+                                    </article>
+                                    <p
+                                        v-if="!visibleTasks(column).length"
+                                        class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"
+                                    >
+                                        No tasks in this view
+                                    </p>
+                                </div>
+                                <div
+                                    v-if="
+                                        columnScrollbars[column.id]
+                                            ?.isScrollable
+                                    "
+                                    class="pointer-events-none absolute top-2 right-1.5 bottom-2 z-10 w-1 rounded-full bg-border/50"
+                                    aria-hidden="true"
                                 >
-                                    No tasks in this view
-                                </p>
+                                    <div
+                                        class="absolute inset-x-0 top-0 rounded-full bg-muted-foreground/80 shadow-sm"
+                                        :style="{
+                                            height: `${columnScrollbars[column.id].thumbHeight}px`,
+                                            transform: `translateY(${columnScrollbars[column.id].thumbOffset}px)`,
+                                        }"
+                                    />
+                                </div>
                             </div>
                         </section>
                     </div>

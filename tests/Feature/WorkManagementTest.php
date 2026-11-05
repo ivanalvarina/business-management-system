@@ -362,6 +362,79 @@ test('moving a task into and out of a done column updates completion time', func
     expect($task->fresh()->completed_at)->toBeNull();
 });
 
+test('tasks can be reordered within the same column', function () {
+    $user = userWithPermissions(['work-boards.view', 'work-tasks.move']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $board = WorkBoard::factory()->for($company)->for($user, 'creator')->create();
+    $board->members()->attach($user);
+    $column = WorkBoardColumn::factory()->for($board, 'board')->create();
+    $firstTask = WorkTask::factory()->for($board, 'board')->for($column, 'column')->for($user, 'creator')->create(['position' => 0]);
+    $secondTask = WorkTask::factory()->for($board, 'board')->for($column, 'column')->for($user, 'creator')->create(['position' => 1]);
+    $thirdTask = WorkTask::factory()->for($board, 'board')->for($column, 'column')->for($user, 'creator')->create(['position' => 2]);
+
+    $this->actingAs($user)->patch(route('work-tasks.move', [$board, $thirdTask]), [
+        'work_board_column_id' => $column->id,
+        'before_task_id' => $firstTask->id,
+    ])->assertRedirect();
+
+    expect($column->tasks()->pluck('id')->all())
+        ->toBe([$thirdTask->id, $firstTask->id, $secondTask->id])
+        ->and($column->tasks()->pluck('position')->all())
+        ->toBe([0, 1, 2]);
+});
+
+test('moving a task between columns inserts it before the selected task and resequences both columns', function () {
+    $user = userWithPermissions(['work-boards.view', 'work-tasks.move']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $board = WorkBoard::factory()->for($company)->for($user, 'creator')->create();
+    $board->members()->attach($user);
+    $todo = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'To Do']);
+    $inProgress = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'In Progress']);
+    $movingTask = WorkTask::factory()->for($board, 'board')->for($todo, 'column')->for($user, 'creator')->create(['position' => 3]);
+    $remainingTask = WorkTask::factory()->for($board, 'board')->for($todo, 'column')->for($user, 'creator')->create(['position' => 8]);
+    $targetTask = WorkTask::factory()->for($board, 'board')->for($inProgress, 'column')->for($user, 'creator')->create(['position' => 4]);
+
+    $this->actingAs($user)->patch(route('work-tasks.move', [$board, $movingTask]), [
+        'work_board_column_id' => $inProgress->id,
+        'before_task_id' => $targetTask->id,
+    ])->assertRedirect();
+
+    expect($todo->tasks()->pluck('id')->all())
+        ->toBe([$remainingTask->id])
+        ->and($todo->tasks()->pluck('position')->all())
+        ->toBe([0])
+        ->and($inProgress->tasks()->pluck('id')->all())
+        ->toBe([$movingTask->id, $targetTask->id])
+        ->and($inProgress->tasks()->pluck('position')->all())
+        ->toBe([0, 1]);
+});
+
+test('a task cannot be positioned relative to a task outside the destination column', function () {
+    $user = userWithPermissions(['work-boards.view', 'work-tasks.move']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $board = WorkBoard::factory()->for($company)->for($user, 'creator')->create();
+    $board->members()->attach($user);
+    $todo = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'To Do']);
+    $done = WorkBoardColumn::factory()->for($board, 'board')->create(['name' => 'Done']);
+    $movingTask = WorkTask::factory()->for($board, 'board')->for($todo, 'column')->for($user, 'creator')->create(['position' => 0]);
+    $invalidTarget = WorkTask::factory()->for($board, 'board')->for($done, 'column')->for($user, 'creator')->create(['position' => 0]);
+
+    $this->actingAs($user)->patch(route('work-tasks.move', [$board, $movingTask]), [
+        'work_board_column_id' => $todo->id,
+        'before_task_id' => $invalidTarget->id,
+    ])->assertSessionHasErrors([
+        'before_task_id' => 'Select a task position from the destination column.',
+    ]);
+
+    expect($movingTask->fresh()->work_board_column_id)
+        ->toBe($todo->id)
+        ->and($movingTask->fresh()->position)
+        ->toBe(0);
+});
+
 test('collaborators with move permission can move their task', function () {
     $owner = userWithPermissions('work-boards.view');
     $collaborator = userWithPermissions(['work-boards.view', 'work-tasks.move']);

@@ -20,16 +20,58 @@ class WorkTaskMoveController extends Controller
         abort_unless($workTask->work_board_id === $workBoard->id, 404);
 
         DB::transaction(function () use ($request, $workTask, $workBoard): void {
+            $sourceColumnId = $workTask->work_board_column_id;
             $column = WorkBoardColumn::query()
                 ->whereBelongsTo($workBoard, 'board')
                 ->lockForUpdate()
                 ->findOrFail($request->integer('work_board_column_id'));
+            $tasks = WorkTask::query()
+                ->whereBelongsTo($workBoard, 'board')
+                ->whereIn('work_board_column_id', [$sourceColumnId, $column->id])
+                ->orderBy('position')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+            $movingTask = $tasks->firstWhere('id', $workTask->id) ?? $workTask;
+            $destinationTasks = $tasks
+                ->where('work_board_column_id', $column->id)
+                ->reject(fn (WorkTask $task): bool => $task->is($movingTask))
+                ->values();
+            $beforeTaskId = $request->filled('before_task_id')
+                ? $request->integer('before_task_id')
+                : null;
+            $insertionIndex = $beforeTaskId === null
+                ? $destinationTasks->count()
+                : $destinationTasks->search(
+                    fn (WorkTask $task): bool => $task->id === $beforeTaskId,
+                );
 
-            $workTask->update([
-                'work_board_column_id' => $column->id,
-                'position' => ((int) $column->tasks()->max('position')) + 1,
-                'completed_at' => $column->is_done ? ($workTask->completed_at ?? now()) : null,
-            ]);
+            $destinationTasks->splice(
+                $insertionIndex === false ? $destinationTasks->count() : $insertionIndex,
+                0,
+                [$movingTask],
+            );
+
+            $destinationTasks->each(function (WorkTask $task, int $position) use ($column, $movingTask): void {
+                $attributes = ['position' => $position];
+
+                if ($task->is($movingTask)) {
+                    $attributes['work_board_column_id'] = $column->id;
+                    $attributes['completed_at'] = $column->is_done
+                        ? ($movingTask->completed_at ?? now())
+                        : null;
+                }
+
+                $task->update($attributes);
+            });
+
+            if ($sourceColumnId !== $column->id) {
+                $tasks
+                    ->where('work_board_column_id', $sourceColumnId)
+                    ->reject(fn (WorkTask $task): bool => $task->is($movingTask))
+                    ->values()
+                    ->each(fn (WorkTask $task, int $position) => $task->update(['position' => $position]));
+            }
         });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Task moved.')]);
