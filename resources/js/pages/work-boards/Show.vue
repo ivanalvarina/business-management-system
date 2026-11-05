@@ -482,7 +482,7 @@ const deleteBoard = () => {
                             </div>
 
                             <div
-                                class="min-h-0 flex-1 [scrollbar-gutter:stable] space-y-2 overflow-y-auto p-3"
+                                class="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] space-y-2 overflow-y-auto overscroll-contain p-3 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent"
                             >
                                 <article
                                     v-for="task in visibleTasks(column)"
