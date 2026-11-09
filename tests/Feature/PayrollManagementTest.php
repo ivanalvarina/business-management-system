@@ -310,6 +310,25 @@ test('authorized users can delete a draft payroll run and its payroll items', fu
     ]);
 });
 
+test('saving a draft payroll uses the employees current salary', function () {
+    $user = userWithPermissions(['payrolls.view', 'payrolls.edit']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $payroll = Payroll::factory()->for($company)->for($user, 'creator')->create();
+    $item = payrollItemFor($payroll);
+    $item->employee()->update(['basic_salary' => 45000]);
+
+    $this->actingAs($user)
+        ->put(route('payrolls.update', $payroll), payrollInputPayload($item->id))
+        ->assertRedirect(route('payrolls.show', $payroll));
+
+    expect($item->fresh())
+        ->monthly_basic_salary->toEqual(45000)
+        ->period_basic_pay->toEqual(22500)
+        ->gross_pay->toEqual(22500)
+        ->net_pay->toEqual(22500);
+});
+
 test('users without delete permission cannot delete a payroll run', function () {
     $user = userWithPermissions('payrolls.view');
     $payroll = Payroll::factory()->create();

@@ -232,8 +232,17 @@ class PayrollController extends Controller
                     );
                 }
 
-                $values = [...$item->only(['monthly_basic_salary', 'hours_per_day', 'payroll_days_basis', 'monthly_workdays_divisor', 'annual_workdays_divisor', 'regular_ot_multiplier', 'special_holiday_multiplier', 'special_holiday_ot_multiplier', 'regular_holiday_multiplier', 'regular_holiday_ot_multiplier']), ...$inputs];
-                $item->update([...$inputs, ...$calculator->calculate($values)]);
+                $monthlyBasicSalary = $item->employee()->value('basic_salary') ?? $item->monthly_basic_salary;
+                $values = [
+                    ...$item->only(['hours_per_day', 'payroll_days_basis', 'monthly_workdays_divisor', 'annual_workdays_divisor', 'regular_ot_multiplier', 'special_holiday_multiplier', 'special_holiday_ot_multiplier', 'regular_holiday_multiplier', 'regular_holiday_ot_multiplier']),
+                    'monthly_basic_salary' => $monthlyBasicSalary,
+                    ...$inputs,
+                ];
+                $item->update([
+                    'monthly_basic_salary' => $monthlyBasicSalary,
+                    ...$inputs,
+                    ...$calculator->calculate($values),
+                ]);
             }
         });
 

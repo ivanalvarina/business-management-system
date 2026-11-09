@@ -6,11 +6,15 @@ use App\Http\Requests\StoreEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\Payroll;
+use App\Models\PayrollItem;
 use App\Models\User;
 use App\Support\AuditLogger;
+use App\Support\PayrollCalculator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -117,22 +121,60 @@ class EmployeeController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateEmployeeRequest $request, Employee $employee, AuditLogger $audit): RedirectResponse
+    public function update(UpdateEmployeeRequest $request, Employee $employee, AuditLogger $audit, PayrollCalculator $calculator): RedirectResponse
     {
         $oldValues = $employee->only($this->auditedAttributes());
-        $employee->update($request->validated());
 
-        $audit->recordChanges(
-            module: 'employees',
-            action: 'updated',
-            subject: $employee,
-            oldValues: $oldValues,
-            newValues: $employee->only(array_intersect($this->auditedAttributes(), array_keys($employee->getChanges()))),
-            request: $request,
-        );
+        DB::transaction(function () use ($request, $employee, $audit, $calculator, $oldValues): void {
+            $employee->update($request->validated());
+
+            if ($employee->wasChanged('basic_salary')) {
+                $this->synchronizeDraftPayrollSalary($employee, $calculator);
+            }
+
+            $audit->recordChanges(
+                module: 'employees',
+                action: 'updated',
+                subject: $employee,
+                oldValues: $oldValues,
+                newValues: $employee->only(array_intersect($this->auditedAttributes(), array_keys($employee->getChanges()))),
+                request: $request,
+            );
+        });
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Employee updated.')]);
 
         return to_route('employees.index', ['company_id' => $employee->company_id]);
+    }
+
+    private function synchronizeDraftPayrollSalary(Employee $employee, PayrollCalculator $calculator): void
+    {
+        $employee->payrollItems()
+            ->whereHas('payroll', fn (Builder $query): Builder => $query->where('status', Payroll::STATUS_DRAFT))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->each(function (PayrollItem $item) use ($employee, $calculator): void {
+                $values = [
+                    ...$item->only([
+                        'hours_per_day',
+                        'payroll_days_basis',
+                        'monthly_workdays_divisor',
+                        'annual_workdays_divisor',
+                        'regular_ot_multiplier',
+                        'special_holiday_multiplier',
+                        'special_holiday_ot_multiplier',
+                        'regular_holiday_multiplier',
+                        'regular_holiday_ot_multiplier',
+                        ...array_values(array_diff(PayrollItem::INPUT_FIELDS, ['other_deductions'])),
+                    ]),
+                    'monthly_basic_salary' => $employee->basic_salary,
+                ];
+
+                $item->update([
+                    'monthly_basic_salary' => $employee->basic_salary,
+                    ...$calculator->calculate($values),
+                ]);
+            });
     }
 
     /**

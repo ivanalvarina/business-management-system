@@ -2,6 +2,7 @@
 
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\Payroll;
 use App\Models\PayrollItem;
 use App\Models\User;
 
@@ -103,6 +104,55 @@ test('authorized users can update employee pay and employment details', function
     expect($employee->fresh()->job_title)->toBe('Senior Payroll Assistant')
         ->and($employee->fresh()->basic_salary)->toBe('45000.00')
         ->and($employee->fresh()->status)->toBe(Employee::STATUS_INACTIVE);
+});
+
+test('updating employee salary recalculates draft payrolls without changing finalized payrolls', function () {
+    $user = userWithPermissions(['employees.view', 'employees.edit']);
+    $company = Company::factory()->create();
+    $user->companies()->attach($company);
+    $employee = Employee::factory()->for($company)->create(['basic_salary' => 30000]);
+    $draftPayroll = Payroll::factory()->for($company)->for($user, 'creator')->create();
+    $finalizedPayroll = Payroll::factory()->for($company)->for($user, 'creator')->create([
+        'period_start' => '2026-09-01',
+        'period_end' => '2026-09-15',
+        'pay_date' => '2026-09-25',
+        'status' => Payroll::STATUS_FINALIZED,
+        'finalized_by' => $user->id,
+        'finalized_at' => now(),
+    ]);
+    $draftItem = PayrollItem::factory()->for($draftPayroll)->for($employee)->create([
+        'monthly_basic_salary' => 30000,
+        'period_basic_pay' => 15000,
+        'gross_pay' => 15000,
+        'net_pay' => 15000,
+    ]);
+    $finalizedItem = PayrollItem::factory()->for($finalizedPayroll)->for($employee)->create([
+        'monthly_basic_salary' => 30000,
+        'period_basic_pay' => 15000,
+        'gross_pay' => 15000,
+        'net_pay' => 15000,
+    ]);
+
+    $this->actingAs($user)
+        ->put(route('employees.update', $employee), employeePayload($company, [
+            'employee_number' => $employee->employee_number,
+            'basic_salary' => '45000.00',
+        ]))
+        ->assertRedirect(route('employees.index', ['company_id' => $company->id]));
+
+    expect($employee->fresh()->basic_salary)->toBe('45000.00');
+    expect($draftItem->fresh())
+        ->monthly_basic_salary->toEqual(45000)
+        ->period_basic_pay->toEqual(22500)
+        ->daily_rate->toEqual(1730.77)
+        ->hourly_rate->toEqual(216.35)
+        ->gross_pay->toEqual(22500)
+        ->net_pay->toEqual(22500);
+    expect($finalizedItem->fresh())
+        ->monthly_basic_salary->toEqual(30000)
+        ->period_basic_pay->toEqual(15000)
+        ->gross_pay->toEqual(15000)
+        ->net_pay->toEqual(15000);
 });
 
 test('authorized users can delete employees from an accessible company', function () {
