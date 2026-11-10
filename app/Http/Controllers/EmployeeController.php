@@ -128,7 +128,9 @@ class EmployeeController extends Controller
         DB::transaction(function () use ($request, $employee, $audit, $calculator, $oldValues): void {
             $employee->update($request->validated());
 
-            if ($employee->wasChanged('basic_salary')) {
+            if ($employee->status === Employee::STATUS_INACTIVE) {
+                $this->removeFromDraftPayrolls($employee);
+            } elseif ($employee->wasChanged('basic_salary')) {
                 $this->synchronizeDraftPayrollSalary($employee, $calculator);
             }
 
@@ -144,6 +146,13 @@ class EmployeeController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Employee updated.')]);
 
         return to_route('employees.index', ['company_id' => $employee->company_id]);
+    }
+
+    private function removeFromDraftPayrolls(Employee $employee): void
+    {
+        $employee->payrollItems()
+            ->whereHas('payroll', fn (Builder $query): Builder => $query->where('status', Payroll::STATUS_DRAFT))
+            ->delete();
     }
 
     private function synchronizeDraftPayrollSalary(Employee $employee, PayrollCalculator $calculator): void
